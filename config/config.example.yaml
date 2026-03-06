@@ -1,0 +1,58 @@
+# PromptFoundry Configuration Example
+# Copy this file to config.yaml and customize
+
+# =============================================================================
+# Optimization Settings
+# =============================================================================
+optimization:
+  strategy: evolutionary
+  max_generations: 50
+  population_size: 20
+  patience: 10
+  seed: null  # Set for reproducibility
+
+# =============================================================================
+# Evolutionary Strategy Settings
+# =============================================================================
+strategy:
+  evolutionary:
+    mutation_rate: 0.3
+    crossover_rate: 0.7
+    tournament_size: 3
+    elitism: 2
+
+# =============================================================================
+# LLM Settings (Local text-generation-webui)
+# =============================================================================
+llm:
+  provider: openai_compat
+  base_url: http://127.0.0.1:5000/v1
+  api_key: local
+  model: Mistral-7B/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+  temperature: 0.7
+  max_tokens: 256
+  timeout: 30
+  max_retries: 3
+
+# =============================================================================
+# Evaluation Settings
+# =============================================================================
+evaluation:
+  type: exact_match
+  case_sensitive: false
+  strip_whitespace: true
+
+# =============================================================================
+# Output Settings
+# =============================================================================
+output:
+  directory: ./output
+  save_history: true
+  format: json
+
+# =============================================================================
+# Logging Settings
+# =============================================================================
+logging:
+  level: INFO
+  format: text

@@ -1,0 +1,53 @@
+# Sentiment Classification Task
+# Example task for PromptFoundry optimization
+
+name: sentiment_classification
+
+system_prompt: |
+  You are a sentiment analysis assistant. Analyze text and classify sentiment.
+
+examples:
+  - input: "I absolutely love this product! Best purchase ever!"
+    output: "positive"
+  
+  - input: "This is terrible. Complete waste of money."
+    output: "negative"
+  
+  - input: "The product works as expected. Nothing special."
+    output: "neutral"
+  
+  - input: "Amazing quality and fast shipping! Highly recommend!"
+    output: "positive"
+  
+  - input: "Broken on arrival. Very disappointed."
+    output: "negative"
+  
+  - input: "It's okay. Does what it's supposed to do."
+    output: "neutral"
+  
+  - input: "Five stars! Exceeded all my expectations!"
+    output: "positive"
+  
+  - input: "Never buying from this company again. Awful experience."
+    output: "negative"
+  
+  - input: "Standard product, standard price."
+    output: "neutral"
+  
+  - input: "My family loves it! Great gift idea!"
+    output: "positive"
+
+validation_examples:
+  - input: "Perfect! Just what I needed!"
+    output: "positive"
+  
+  - input: "Defective and customer service was unhelpful."
+    output: "negative"
+  
+  - input: "Average product for average price."
+    output: "neutral"
+
+metadata:
+  task_type: classification
+  num_classes: 3
+  difficulty: easy
