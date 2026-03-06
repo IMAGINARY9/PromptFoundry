@@ -92,35 +92,9 @@ ruff format src/promptfoundry
 4. **Protocol over ABC** for interfaces
 5. **Frozen dataclasses** for domain objects
 
-## Current Implementation Status
-
-### Completed (Phase 1.1)
-- ✅ Domain models (Prompt, Task, Population, History)
-- ✅ GeneticAlgorithmStrategy with mutation/crossover operators
-- ✅ ExactMatch, FuzzyMatch, Regex, Contains evaluators  
-- ✅ OpenAI-compatible LLM client with retry logic
-- ✅ Typer CLI scaffold
-
-### Next Steps (Phase 1.2+)
-- [ ] Full CLI integration (optimize command)
-- [ ] Prompt serialization/checkpointing
-- [ ] Configuration file loading
-- [ ] Batch evaluation pipeline
-
-## Testing Fixtures
-
-Key fixtures in `tests/conftest.py`:
-- `sample_prompt` - Basic prompt for testing
-- `sample_task` - Task with 5 examples
-- `sample_population` - Population of 5 individuals
-- `MockLLMClient` - Deterministic LLM mock for testing
-
 ## Git Workflow
 
 ```bash
-# Remote
-git remote -v  # origin: git@github.com:IMAGINARY9/PromptFoundry.git
-
 # Commit convention
 git commit -m "feat(core): add new feature"
 git commit -m "fix(evaluators): correct fuzzy match"
