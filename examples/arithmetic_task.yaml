@@ -1,0 +1,53 @@
+# Arithmetic Reasoning Task
+# Example task for testing mathematical reasoning capabilities
+
+name: arithmetic_reasoning
+
+system_prompt: |
+  You are a math tutor. Solve arithmetic word problems step by step, then provide the final numerical answer.
+
+evaluator: regex
+evaluator_config:
+  pattern: "\\b{expected}\\b"
+
+examples:
+  - input: "If you have 15 apples and give away 7, how many do you have left?"
+    expected: "8"
+  
+  - input: "A store has 24 books. If they sell 9 and receive 12 more, how many books do they have?"
+    expected: "27"
+  
+  - input: "What is 45 divided by 9?"
+    expected: "5"
+  
+  - input: "If a train travels 60 miles per hour for 3 hours, how far does it go?"
+    expected: "180"
+  
+  - input: "What is 17 multiplied by 4?"
+    expected: "68"
+  
+  - input: "A baker makes 36 cookies and puts them in bags of 6. How many bags does she fill?"
+    expected: "6"
+  
+  - input: "If you save $5 each week for 8 weeks, how much do you save in total?"
+    expected: "40"
+  
+  - input: "What is 100 minus 37 plus 12?"
+    expected: "75"
+  
+  - input: "A rectangle has a length of 8 and width of 5. What is its area?"
+    expected: "40"
+  
+  - input: "If 3 friends share 21 candies equally, how many does each get?"
+    expected: "7"
+  
+  - input: "What is half of 96?"
+    expected: "48"
+  
+  - input: "A car uses 4 gallons of gas to travel 120 miles. How many miles per gallon?"
+    expected: "30"
+
+metadata:
+  task_type: reasoning
+  difficulty: easy
+  domain: math

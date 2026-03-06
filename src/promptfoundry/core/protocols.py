@@ -56,6 +56,17 @@ class Evaluator(Protocol):
         """
         ...
 
+    def aggregate(self, scores: list[float]) -> float:
+        """Aggregate multiple scores into a single fitness value.
+
+        Args:
+            scores: List of individual scores.
+
+        Returns:
+            Aggregated score (typically mean).
+        """
+        ...
+
 
 @runtime_checkable
 class LLMClient(Protocol):

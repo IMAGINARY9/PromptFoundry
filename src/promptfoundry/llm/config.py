@@ -24,6 +24,8 @@ class LLMConfig:
         timeout: Request timeout in seconds.
         max_retries: Maximum retry attempts.
         retry_delay: Base delay between retries in seconds.
+        rate_limit_rpm: Maximum requests per minute (0 = unlimited).
+        rate_limit_tpm: Maximum tokens per minute (0 = unlimited).
         extra: Additional provider-specific options.
     """
 
@@ -37,6 +39,8 @@ class LLMConfig:
     timeout: float = 30.0
     max_retries: int = 3
     retry_delay: float = 1.0
+    rate_limit_rpm: int = 0
+    rate_limit_tpm: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,6 +82,8 @@ class LLMConfig:
             "timeout",
             "max_retries",
             "retry_delay",
+            "rate_limit_rpm",
+            "rate_limit_tpm",
         }
 
         known = {k: v for k, v in data.items() if k in known_keys}

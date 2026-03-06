@@ -6,36 +6,40 @@ name: json_formatting
 system_prompt: |
   You are a data extraction assistant. Extract structured information and return valid JSON.
 
+evaluator: fuzzy_match
+evaluator_config:
+  threshold: 0.85
+
 examples:
   - input: "John Smith, age 30, works as a software engineer in New York."
-    output: '{"name": "John Smith", "age": 30, "occupation": "software engineer", "city": "New York"}'
+    expected: '{"name": "John Smith", "age": 30, "occupation": "software engineer", "city": "New York"}'
   
   - input: "Jane Doe is a 25-year-old doctor from Los Angeles."
-    output: '{"name": "Jane Doe", "age": 25, "occupation": "doctor", "city": "Los Angeles"}'
+    expected: '{"name": "Jane Doe", "age": 25, "occupation": "doctor", "city": "Los Angeles"}'
   
   - input: "Bob Johnson, 45, teacher, Chicago."
-    output: '{"name": "Bob Johnson", "age": 45, "occupation": "teacher", "city": "Chicago"}'
+    expected: '{"name": "Bob Johnson", "age": 45, "occupation": "teacher", "city": "Chicago"}'
   
   - input: "Alice Brown is 35 and works as a nurse in Seattle."
-    output: '{"name": "Alice Brown", "age": 35, "occupation": "nurse", "city": "Seattle"}'
+    expected: '{"name": "Alice Brown", "age": 35, "occupation": "nurse", "city": "Seattle"}'
   
   - input: "Mike Davis, age 28, is an accountant based in Boston."
-    output: '{"name": "Mike Davis", "age": 28, "occupation": "accountant", "city": "Boston"}'
+    expected: '{"name": "Mike Davis", "age": 28, "occupation": "accountant", "city": "Boston"}'
   
   - input: "Sarah Wilson is a 32-year-old designer from Miami."
-    output: '{"name": "Sarah Wilson", "age": 32, "occupation": "designer", "city": "Miami"}'
+    expected: '{"name": "Sarah Wilson", "age": 32, "occupation": "designer", "city": "Miami"}'
   
   - input: "Tom Anderson, 40, manager, Denver."
-    output: '{"name": "Tom Anderson", "age": 40, "occupation": "manager", "city": "Denver"}'
+    expected: '{"name": "Tom Anderson", "age": 40, "occupation": "manager", "city": "Denver"}'
   
   - input: "Lisa Taylor is 29 and works as a lawyer in San Francisco."
-    output: '{"name": "Lisa Taylor", "age": 29, "occupation": "lawyer", "city": "San Francisco"}'
+    expected: '{"name": "Lisa Taylor", "age": 29, "occupation": "lawyer", "city": "San Francisco"}'
   
   - input: "Chris Martin, age 38, is a musician based in Austin."
-    output: '{"name": "Chris Martin", "age": 38, "occupation": "musician", "city": "Austin"}'
+    expected: '{"name": "Chris Martin", "age": 38, "occupation": "musician", "city": "Austin"}'
   
   - input: "Emma White is a 33-year-old architect from Portland."
-    output: '{"name": "Emma White", "age": 33, "occupation": "architect", "city": "Portland"}'
+    expected: '{"name": "Emma White", "age": 33, "occupation": "architect", "city": "Portland"}'
 
 metadata:
   task_type: extraction

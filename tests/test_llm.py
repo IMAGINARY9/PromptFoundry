@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 from promptfoundry.llm.config import LLMConfig
 from promptfoundry.llm.openai_compat import OpenAICompatClient
+from promptfoundry.llm.rate_limiter import RateLimiter, TokenBucket
 
 
 class TestLLMConfig:
@@ -114,3 +115,58 @@ class TestOpenAICompatClient:
         assert info["name"] == "OpenAICompatClient"
         assert info["provider"] == "openai_compat"
         assert info["base_url"] == "http://test:5000/v1"
+
+
+class TestTokenBucket:
+    """Tests for TokenBucket rate limiter."""
+
+    @pytest.mark.asyncio
+    async def test_bucket_initialization(self) -> None:
+        """Test bucket initializes with full capacity."""
+        bucket = TokenBucket(capacity=10.0, refill_rate=1.0)
+        assert bucket.tokens == 10.0
+        assert bucket.capacity == 10.0
+
+    @pytest.mark.asyncio
+    async def test_acquire_immediate(self) -> None:
+        """Test immediate acquisition when tokens available."""
+        bucket = TokenBucket(capacity=10.0, refill_rate=1.0)
+        wait_time = await bucket.acquire(5.0)
+        assert wait_time == 0.0
+        assert bucket.tokens == 5.0
+
+    @pytest.mark.asyncio
+    async def test_acquire_returns_wait_time(self) -> None:
+        """Test acquire returns wait time when insufficient tokens."""
+        bucket = TokenBucket(capacity=10.0, refill_rate=10.0)  # 10 tokens/sec
+        await bucket.acquire(10.0)  # Empty bucket
+        wait_time = await bucket.acquire(5.0)
+        assert wait_time > 0  # Should need to wait
+
+
+class TestRateLimiter:
+    """Tests for RateLimiter."""
+
+    def test_unlimited_limiter(self) -> None:
+        """Test limiter with no limits."""
+        limiter = RateLimiter(rpm=0, tpm=0)
+        assert not limiter.is_limited
+
+    def test_rpm_limited(self) -> None:
+        """Test limiter with RPM limit."""
+        limiter = RateLimiter(rpm=60, tpm=0)
+        assert limiter.is_limited
+        assert limiter._request_bucket is not None
+
+    def test_tpm_limited(self) -> None:
+        """Test limiter with TPM limit."""
+        limiter = RateLimiter(rpm=0, tpm=1000)
+        assert limiter.is_limited
+        assert limiter._token_bucket is not None
+
+    @pytest.mark.asyncio
+    async def test_acquire_unlimited(self) -> None:
+        """Test acquire on unlimited limiter."""
+        limiter = RateLimiter(rpm=0, tpm=0)
+        wait_time = await limiter.acquire_request(100)
+        assert wait_time == 0.0

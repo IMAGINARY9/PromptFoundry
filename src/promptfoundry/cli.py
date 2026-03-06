@@ -6,13 +6,37 @@ This module provides the command-line interface for PromptFoundry.
 from __future__ import annotations
 
 import asyncio
+import json
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import typer
+import yaml
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
+
+from promptfoundry.core import (
+    Example,
+    Optimizer,
+    OptimizerConfig,
+    OptimizationResult,
+    Prompt,
+    Task,
+)
+from promptfoundry.evaluators import ExactMatchEvaluator, FuzzyMatchEvaluator, RegexEvaluator
+from promptfoundry.llm import LLMConfig, OpenAICompatClient
+from promptfoundry.strategies import GeneticAlgorithmStrategy
+from promptfoundry.strategies.evolutionary import EvolutionaryConfig
 
 app = typer.Typer(
     name="promptfoundry",
@@ -20,6 +44,51 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
+    """Load a task from a YAML file.
+    
+    Returns:
+        Tuple of (Task, evaluator_type, evaluator_config).
+    """
+    with task_path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    examples = [
+        Example(
+            input=ex["input"],
+            expected_output=ex["expected"],
+            metadata=ex.get("metadata", {}),
+        )
+        for ex in data.get("examples", [])
+    ]
+
+    task = Task(
+        name=data["name"],
+        examples=examples,
+        system_prompt=data.get("system_prompt"),
+        metadata=data.get("metadata", {}),
+    )
+    
+    evaluator_type = data.get("evaluator", "exact_match")
+    evaluator_config = data.get("evaluator_config", {})
+    
+    return task, evaluator_type, evaluator_config
+
+
+def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
+    """Get an evaluator instance by type name."""
+    evaluators: dict[str, Any] = {
+        "exact_match": lambda: ExactMatchEvaluator(**config),
+        "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
+        "regex": lambda: RegexEvaluator(**config),
+    }
+    
+    if evaluator_type not in evaluators:
+        raise ValueError(f"Unknown evaluator type: {evaluator_type}. Available: {list(evaluators.keys())}")
+    
+    return evaluators[evaluator_type]()
 
 
 @app.command()
@@ -89,28 +158,182 @@ def optimize(
         )
     )
 
-    # This is a stub - full implementation in future versions
-    console.print("\n[yellow]Note: Full optimization not yet implemented.[/yellow]")
-    console.print("Run unit tests to verify component functionality.\n")
+    # Load task
+    try:
+        task_obj, evaluator_type, evaluator_config = _load_task(task)
+        console.print(f"[green]✓[/green] Loaded task: {task_obj.name}")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to load task: {e}")
+        raise typer.Exit(1)
 
-    # Demo output
-    table = Table(title="Optimization Configuration")
-    table.add_column("Parameter", style="cyan")
-    table.add_column("Value", style="green")
+    # Load LLM config
+    llm_config = LLMConfig()
+    if config:
+        try:
+            with config.open("r", encoding="utf-8") as f:
+                config_data = yaml.safe_load(f)
+            if "llm" in config_data:
+                llm_config = LLMConfig.from_dict(config_data["llm"])
+            console.print(f"[green]✓[/green] Loaded config: {config.name}")
+        except Exception as e:
+            console.print(f"[yellow]![/yellow] Failed to load config: {e}, using defaults")
 
-    table.add_row("Task file", str(task))
-    table.add_row("Seed prompt", seed_prompt[:50] + "..." if len(seed_prompt) > 50 else seed_prompt)
-    table.add_row("Strategy", strategy)
-    table.add_row("Max generations", str(max_generations))
-    table.add_row("Population size", str(population_size))
-    table.add_row("Output directory", str(output_dir))
+    # Validate strategy
+    if strategy != "evolutionary":
+        console.print(f"[yellow]![/yellow] Strategy '{strategy}' not yet implemented, using 'evolutionary'")
+        strategy = "evolutionary"
 
-    console.print(table)
+    # Create components
+    evaluator = _get_evaluator(evaluator_type, evaluator_config)
+    console.print(f"[green]✓[/green] Using evaluator: {evaluator_type}")
+
+    strategy_config = EvolutionaryConfig(population_size=population_size)
+    optimization_strategy = GeneticAlgorithmStrategy(strategy_config)
+    console.print(f"[green]✓[/green] Using strategy: evolutionary")
+
+    # Create optimizer config
+    optimizer_config = OptimizerConfig(
+        max_generations=max_generations,
+        population_size=population_size,
+        patience=10,
+    )
+
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create seed prompt
+    seed = Prompt(text=seed_prompt)
+    console.print(f"[green]✓[/green] Created seed prompt\n")
+
+    # Progress tracking
+    progress_data: dict[str, Any] = {"generation": 0, "best_fitness": 0.0}
+
+    # Run optimization
+    async def _run_optimization() -> OptimizationResult:
+        llm_client = OpenAICompatClient(llm_config)
+        
+        # Check LLM health
+        with console.status("[bold green]Checking LLM connection..."):
+            healthy = await llm_client.health_check()
+        
+        if not healthy:
+            console.print(f"[red]✗[/red] Cannot connect to LLM at {llm_config.base_url}")
+            console.print("  Make sure your LLM server is running.")
+            await llm_client.close()
+            raise typer.Exit(1)
+        
+        console.print(f"[green]✓[/green] Connected to LLM at {llm_config.base_url}\n")
+
+        optimizer = Optimizer(
+            strategy=optimization_strategy,
+            evaluator=evaluator,
+            llm_client=llm_client,
+            config=optimizer_config,
+        )
+
+        # Add progress callback (using type: ignore due to Protocol matching quirk)
+        def _progress_callback(
+            generation: int,
+            best_fitness: float,
+            avg_fitness: float,
+            best_prompt_text: str,
+        ) -> None:
+            progress_data["generation"] = generation
+            progress_data["best_fitness"] = best_fitness
+            if verbose:
+                console.print(
+                    f"  Gen {generation}: best={best_fitness:.4f}, "
+                    f"avg={avg_fitness:.4f}"
+                )
+
+        optimizer.add_callback(_progress_callback)  # type: ignore[arg-type]
+
+        console.print("[bold]Running optimization...[/bold]\n")
+        
+        # Use rich progress bar
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            progress_task = progress.add_task(
+                "[cyan]Optimizing prompts...",
+                total=max_generations,
+            )
+
+            # Wrap callback to update progress bar
+            original_callbacks = optimizer._callbacks.copy()
+            optimizer._callbacks.clear()
+            
+            def _wrapped_callback(
+                generation: int,
+                best_fitness: float,
+                avg_fitness: float,
+                best_prompt_text: str,
+            ) -> None:
+                for cb in original_callbacks:
+                    cb(generation, best_fitness, avg_fitness, best_prompt_text)
+                progress.update(progress_task, completed=generation)
+            
+            optimizer.add_callback(_wrapped_callback)  # type: ignore[arg-type]
+
+            result = await optimizer.optimize(
+                seed_prompt=seed,
+                task=task_obj,
+            )
+
+        await llm_client.close()
+        return result
+
+    try:
+        result = asyncio.run(_run_optimization())
+        best_prompt = result.best_prompt
+        best_fitness = result.best_score
+        total_generations = result.total_generations
+    except Exception as e:
+        console.print(f"\n[red]✗[/red] Optimization failed: {e}")
+        if verbose:
+            import traceback
+            console.print(traceback.format_exc())
+        raise typer.Exit(1)
+
+    # Display results
+    console.print("\n" + "=" * 60)
+    console.print(
+        Panel(
+            f"[bold green]Optimization Complete![/bold green]\n\n"
+            f"[cyan]Best Fitness:[/cyan] {best_fitness:.4f}\n"
+            f"[cyan]Generations:[/cyan] {total_generations}\n\n"
+            f"[cyan]Best Prompt:[/cyan]\n{best_prompt.text}",
+            title="Results",
+        )
+    )
+
+    # Save results
+    result_file = output_dir / f"optimization_{datetime.now():%Y%m%d_%H%M%S}.json"
+    result_data = {
+        "task": task_obj.name,
+        "seed_prompt": seed_prompt,
+        "best_prompt": best_prompt.text,
+        "best_fitness": best_fitness,
+        "generations": total_generations,
+        "strategy": strategy,
+        "population_size": population_size,
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    with result_file.open("w", encoding="utf-8") as f:
+        json.dump(result_data, f, indent=2)
+    
+    console.print(f"\n[green]✓[/green] Results saved to: {result_file}")
 
 
 @app.command()
 def validate(
-    config: Path = typer.Option(
+    config_path: Path = typer.Option(
         ...,
         "--config",
         "-c",
@@ -124,10 +347,8 @@ def validate(
     Example:
         promptfoundry validate --config config.yaml
     """
-    import yaml
-
     try:
-        with config.open("r", encoding="utf-8") as f:
+        with config_path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         console.print("[green]✓[/green] Configuration file is valid YAML")
@@ -140,9 +361,119 @@ def validate(
             else:
                 console.print(f"[yellow]![/yellow] Missing '{section}' section (will use defaults)")
 
+        # Validate LLM config if present
+        if "llm" in data:
+            try:
+                LLMConfig.from_dict(data["llm"])
+                console.print("[green]✓[/green] LLM configuration is valid")
+            except Exception as e:
+                console.print(f"[red]✗[/red] Invalid LLM config: {e}")
+                raise typer.Exit(1)
+
     except yaml.YAMLError as e:
         console.print(f"[red]✗[/red] Invalid YAML: {e}")
         raise typer.Exit(1)
+
+
+@app.command()
+def report(
+    result_file: Path = typer.Argument(
+        ...,
+        help="Path to optimization result JSON file",
+        exists=True,
+        readable=True,
+    ),
+) -> None:
+    """View an optimization result report.
+
+    Example:
+        promptfoundry report ./output/optimization_20240101_120000.json
+    """
+    try:
+        with result_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]✗[/red] Invalid JSON file: {e}")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel(
+            f"[bold blue]Optimization Report[/bold blue]\n\n"
+            f"[cyan]Task:[/cyan] {data.get('task', 'N/A')}\n"
+            f"[cyan]Timestamp:[/cyan] {data.get('timestamp', 'N/A')}\n"
+            f"[cyan]Strategy:[/cyan] {data.get('strategy', 'N/A')}\n"
+            f"[cyan]Population Size:[/cyan] {data.get('population_size', 'N/A')}\n"
+            f"[cyan]Generations:[/cyan] {data.get('generations', 'N/A')}\n"
+            f"[cyan]Best Fitness:[/cyan] {data.get('best_fitness', 0):.4f}",
+            title=f"Report: {result_file.name}",
+        )
+    )
+
+    # Show prompts
+    table = Table(title="Prompts")
+    table.add_column("Type", style="cyan")
+    table.add_column("Template")
+
+    table.add_row("Seed Prompt", data.get("seed_prompt", "N/A"))
+    table.add_row("Best Prompt", data.get("best_prompt", "N/A"))
+
+    console.print(table)
+
+    # Show improvement
+    seed = data.get("seed_prompt", "")
+    best = data.get("best_prompt", "")
+    if seed and best and seed != best:
+        console.print(f"\n[green]✓[/green] Prompt was improved from seed")
+    elif seed == best:
+        console.print(f"\n[yellow]![/yellow] Best prompt is same as seed (no improvement)")
+
+
+@app.command()
+def list_results(
+    output_dir: Path = typer.Option(
+        Path("./output"),
+        "--output",
+        "-o",
+        help="Output directory to scan for results",
+    ),
+) -> None:
+    """List all optimization results in output directory.
+
+    Example:
+        promptfoundry list-results --output ./output
+    """
+    if not output_dir.exists():
+        console.print(f"[yellow]![/yellow] Directory does not exist: {output_dir}")
+        return
+
+    results = list(output_dir.glob("optimization_*.json"))
+    
+    if not results:
+        console.print(f"[yellow]![/yellow] No optimization results found in {output_dir}")
+        return
+
+    table = Table(title=f"Optimization Results in {output_dir}")
+    table.add_column("File", style="cyan")
+    table.add_column("Task")
+    table.add_column("Fitness", justify="right")
+    table.add_column("Generations", justify="right")
+    table.add_column("Timestamp")
+
+    for result_file in sorted(results, reverse=True):
+        try:
+            with result_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            table.add_row(
+                result_file.name,
+                data.get("task", "N/A"),
+                f"{data.get('best_fitness', 0):.4f}",
+                str(data.get("generations", "N/A")),
+                data.get("timestamp", "N/A")[:19] if data.get("timestamp") else "N/A",
+            )
+        except Exception:
+            table.add_row(result_file.name, "[red]Error[/red]", "-", "-", "-")
+
+    console.print(table)
 
 
 @app.command()
@@ -260,13 +591,18 @@ def list_evaluators() -> None:
         "[green]Available[/green]",
     )
     table.add_row(
-        "json_schema",
-        "JSON schema validation",
-        "[yellow]MVP 2[/yellow]",
-    )
-    table.add_row(
         "custom",
         "Custom Python scoring function",
+        "[green]Available[/green]",
+    )
+    table.add_row(
+        "composite",
+        "Weighted combination of multiple evaluators",
+        "[green]Available[/green]",
+    )
+    table.add_row(
+        "json_schema",
+        "JSON schema validation",
         "[yellow]MVP 2[/yellow]",
     )
 

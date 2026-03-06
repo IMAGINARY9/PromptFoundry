@@ -6,46 +6,50 @@ name: sentiment_classification
 system_prompt: |
   You are a sentiment analysis assistant. Analyze text and classify sentiment.
 
+evaluator: exact_match
+evaluator_config:
+  case_sensitive: false
+
 examples:
   - input: "I absolutely love this product! Best purchase ever!"
-    output: "positive"
+    expected: "positive"
   
   - input: "This is terrible. Complete waste of money."
-    output: "negative"
+    expected: "negative"
   
   - input: "The product works as expected. Nothing special."
-    output: "neutral"
+    expected: "neutral"
   
   - input: "Amazing quality and fast shipping! Highly recommend!"
-    output: "positive"
+    expected: "positive"
   
   - input: "Broken on arrival. Very disappointed."
-    output: "negative"
+    expected: "negative"
   
   - input: "It's okay. Does what it's supposed to do."
-    output: "neutral"
+    expected: "neutral"
   
   - input: "Five stars! Exceeded all my expectations!"
-    output: "positive"
+    expected: "positive"
   
   - input: "Never buying from this company again. Awful experience."
-    output: "negative"
+    expected: "negative"
   
   - input: "Standard product, standard price."
-    output: "neutral"
+    expected: "neutral"
   
   - input: "My family loves it! Great gift idea!"
-    output: "positive"
+    expected: "positive"
 
 validation_examples:
   - input: "Perfect! Just what I needed!"
-    output: "positive"
+    expected: "positive"
   
   - input: "Defective and customer service was unhelpful."
-    output: "negative"
+    expected: "negative"
   
   - input: "Average product for average price."
-    output: "neutral"
+    expected: "neutral"
 
 metadata:
   task_type: classification

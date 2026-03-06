@@ -13,6 +13,7 @@ import httpx
 
 from promptfoundry.llm.base import BaseLLMClient
 from promptfoundry.llm.config import LLMConfig
+from promptfoundry.llm.rate_limiter import RateLimiter
 
 
 class OpenAICompatClient(BaseLLMClient):
@@ -33,6 +34,10 @@ class OpenAICompatClient(BaseLLMClient):
         """
         self.config = config or LLMConfig.for_local_model()
         self._client: httpx.AsyncClient | None = None
+        self._rate_limiter = RateLimiter(
+            rpm=self.config.rate_limit_rpm,
+            tpm=self.config.rate_limit_tpm,
+        )
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client.
@@ -90,6 +95,10 @@ class OpenAICompatClient(BaseLLMClient):
             "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
             "top_p": kwargs.get("top_p", self.config.top_p),
         }
+
+        # Apply rate limiting
+        estimated_tokens = len(prompt) // 4 + self.config.max_tokens
+        await self._rate_limiter.acquire_request(estimated_tokens)
 
         # Retry logic
         last_error: Exception | None = None
