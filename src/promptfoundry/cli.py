@@ -37,7 +37,18 @@ from promptfoundry.core import (
     get_available_profiles,
     get_profile_description,
 )
-from promptfoundry.evaluators import ExactMatchEvaluator, FuzzyMatchEvaluator, RegexEvaluator
+from promptfoundry.evaluators import (
+    ContainsEvaluator,
+    ExactMatchEvaluator,
+    FieldCoverageEvaluator,
+    FuzzyMatchEvaluator,
+    JsonParseEvaluator,
+    JsonSchemaEvaluator,
+    KeywordPresenceEvaluator,
+    LengthConstraintEvaluator,
+    OutputShapeEvaluator,
+    RegexEvaluator,
+)
 from promptfoundry.llm import LLMConfig, OpenAICompatClient
 from promptfoundry.strategies import GeneticAlgorithmStrategy
 from promptfoundry.strategies.evolutionary import EvolutionaryConfig
@@ -84,9 +95,19 @@ def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
 def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
     """Get an evaluator instance by type name."""
     evaluators: dict[str, Any] = {
+        # Accuracy evaluators
         "exact_match": lambda: ExactMatchEvaluator(**config),
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
+        # Format evaluators
         "regex": lambda: RegexEvaluator(**config),
+        "contains": lambda: ContainsEvaluator(**config),
+        # Cheap proxy metrics (MVP 2)
+        "json_parse": lambda: JsonParseEvaluator(**config),
+        "json_schema": lambda: JsonSchemaEvaluator(**config),
+        "field_coverage": lambda: FieldCoverageEvaluator(**config),
+        "keyword_presence": lambda: KeywordPresenceEvaluator(**config),
+        "length_constraint": lambda: LengthConstraintEvaluator(**config),
+        "output_shape": lambda: OutputShapeEvaluator(**config),
     }
 
     if evaluator_type not in evaluators:
@@ -674,40 +695,78 @@ def list_evaluators() -> None:
     table = Table(title="Available Evaluators")
     table.add_column("Name", style="cyan")
     table.add_column("Description")
-    table.add_column("Status")
+    table.add_column("Type")
 
+    # Accuracy evaluators
     table.add_row(
         "exact_match",
         "Exact string match (case-insensitive by default)",
-        "[green]Available[/green]",
+        "[blue]Accuracy[/blue]",
     )
     table.add_row(
         "fuzzy_match",
         "Fuzzy string matching with Levenshtein distance",
-        "[green]Available[/green]",
+        "[blue]Accuracy[/blue]",
     )
+    
+    # Format evaluators
     table.add_row(
         "regex",
         "Regex pattern matching",
-        "[green]Available[/green]",
+        "[magenta]Format[/magenta]",
     )
+    table.add_row(
+        "contains",
+        "Check if output contains expected text",
+        "[magenta]Format[/magenta]",
+    )
+    
+    # Cheap proxy metrics (MVP 2)
+    table.add_row(
+        "json_parse",
+        "Validates JSON syntax (cheap pre-filter)",
+        "[green]Proxy[/green]",
+    )
+    table.add_row(
+        "json_schema",
+        "JSON schema validation with partial credit",
+        "[green]Proxy[/green]",
+    )
+    table.add_row(
+        "field_coverage",
+        "Check for required patterns/sections in output",
+        "[green]Proxy[/green]",
+    )
+    table.add_row(
+        "keyword_presence",
+        "Check for required/forbidden keywords",
+        "[green]Proxy[/green]",
+    )
+    table.add_row(
+        "length_constraint",
+        "Score based on output length constraints",
+        "[green]Proxy[/green]",
+    )
+    table.add_row(
+        "output_shape",
+        "Validate structural shape (prefix, suffix, markers)",
+        "[green]Proxy[/green]",
+    )
+    
+    # Custom evaluators
     table.add_row(
         "custom",
         "Custom Python scoring function",
-        "[green]Available[/green]",
+        "[yellow]Custom[/yellow]",
     )
     table.add_row(
         "composite",
         "Weighted combination of multiple evaluators",
-        "[green]Available[/green]",
-    )
-    table.add_row(
-        "json_schema",
-        "JSON schema validation",
-        "[yellow]MVP 2[/yellow]",
+        "[yellow]Custom[/yellow]",
     )
 
     console.print(table)
+    console.print("\n[dim]Proxy evaluators provide partial credit and are ideal for staged pipelines.[/dim]")
 
 
 @app.command()

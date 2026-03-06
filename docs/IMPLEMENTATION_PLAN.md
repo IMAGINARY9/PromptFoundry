@@ -189,12 +189,12 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Expose concurrency, patience, and budget controls in CLI and config
 - [x] Write unit tests for config precedence and profile selection
 
-### Phase 2.2: Cheap Proxy Metrics (Day 3-5)
-- [ ] Implement output-shape / regex compliance evaluator improvements
-- [ ] Implement parser-success / schema-success evaluator
-- [ ] Implement field-coverage / required-key evaluator
-- [ ] Implement latency/token penalty metric
-- [ ] Document when to use cheap metrics vs exact metrics
+### Phase 2.2: Cheap Proxy Metrics (Day 3-5) ✅
+- [x] Implement output-shape / regex compliance evaluator improvements
+- [x] Implement parser-success / schema-success evaluator
+- [x] Implement field-coverage / required-key evaluator
+- [x] Implement latency/token penalty metric (as length constraint)
+- [x] Document when to use cheap metrics vs exact metrics
 
 ### Phase 2.3: Staged Evaluation Pipeline (Day 6-8)
 - [ ] Add multi-stage evaluator pipeline support
