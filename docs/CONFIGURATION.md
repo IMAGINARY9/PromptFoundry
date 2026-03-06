@@ -274,10 +274,36 @@ promptfoundry list-evaluators
 
 ---
 
-## 6. Local LLM Configuration
+## 6. Local LLM Setup
 
-For use with text-generation-webui (see `USAGE.md` in project root):
+### 6.1 text-generation-webui Installation
 
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/oobabooga/text-generation-webui
+   cd text-generation-webui
+   ```
+
+2. **Run the one-click installer:**
+   - Windows: `start_windows.bat`
+   - Linux: `./start_linux.sh`
+   - macOS: `./start_macos.sh`
+
+3. **Download a model (recommended: Mistral-7B-Instruct):**
+   ```
+   # In the webui interface, go to Model → Download
+   # Or use the CLI:
+   python download-model.py TheBloke/Mistral-7B-Instruct-v0.2-GGUF
+   ```
+
+4. **Start with API enabled:**
+   ```bash
+   python server.py --api --listen
+   ```
+
+### 6.2 PromptFoundry Configuration
+
+YAML configuration:
 ```yaml
 llm:
   provider: openai_compat
@@ -288,11 +314,38 @@ llm:
   max_tokens: 256
 ```
 
-Environment variables:
+Environment variables (alternative):
 ```bash
 export OPENAI_API_BASE=http://127.0.0.1:5000/v1
 export OPENAI_API_KEY=local
 ```
+
+### 6.3 Test Connection
+
+```bash
+# Verify LLM is accessible and responding
+python scripts/test_llm_connection.py
+
+# Custom endpoint
+python scripts/test_llm_connection.py --base-url http://192.168.1.10:5000/v1
+
+# Specific model
+python scripts/test_llm_connection.py --model mistral-7b-instruct
+```
+
+The test script performs:
+1. **Health check** - Server reachability
+2. **Basic completion** - Simple prompt response
+3. **Optimization test** - Domain-specific prompt optimization task
+
+### 6.4 Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Connection refused | Ensure server is running: `python server.py --api --listen` |
+| No models available | Load a model in the webui interface |
+| Slow responses | Use quantized models (Q4_K_M) for faster inference |
+| Out of memory | Try smaller model or lower context length |
 
 ---
 
