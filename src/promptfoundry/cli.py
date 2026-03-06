@@ -27,8 +27,11 @@ from rich.progress import (
 from rich.table import Table
 
 from promptfoundry.core import (
+    BenchmarkGate,
     BenchmarkSummary,
+    BenchmarkThreshold,
     Example,
+    GateResult,
     OptimizationResult,
     Optimizer,
     OptimizerConfig,
@@ -36,6 +39,7 @@ from promptfoundry.core import (
     RunDiagnostics,
     RuntimeConfig,
     Task,
+    create_custom_gate,
     format_diagnostics_report,
     get_available_profiles,
     get_profile_description,
@@ -767,6 +771,147 @@ def benchmark_summary(
             )
 
         console.print(task_table)
+
+
+@app.command()
+def gate_check(
+    output_dir: Path = typer.Option(
+        Path("./output"),
+        "--output",
+        "-o",
+        help="Output directory containing results",
+    ),
+    min_improvement: float = typer.Option(
+        0.05,
+        "--min-improvement",
+        help="Minimum required improvement (absolute)",
+    ),
+    min_success_rate: float = typer.Option(
+        0.6,
+        "--min-success-rate",
+        help="Minimum required success rate (0.0-1.0)",
+    ),
+    max_no_signal: float = typer.Option(
+        0.3,
+        "--max-no-signal",
+        help="Maximum allowed no-signal rate (0.0-1.0)",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Exit with error code if gate fails",
+    ),
+) -> None:
+    """Run benchmark gate validation on optimization results.
+
+    Validates that optimization runs meet quality thresholds:
+    - Minimum improvement threshold
+    - Minimum success rate across runs
+    - Maximum no-signal rate tolerance
+
+    Example:
+        promptfoundry gate-check --output ./output
+        promptfoundry gate-check --min-improvement 0.1 --strict
+    """
+    if not output_dir.exists():
+        console.print(f"[yellow]![/yellow] Directory does not exist: {output_dir}")
+        raise typer.Exit(1)
+
+    results = list(output_dir.glob("optimization_*.json"))
+    if not results:
+        console.print(f"[yellow]![/yellow] No optimization results found in {output_dir}")
+        raise typer.Exit(1)
+
+    # Create gate with custom thresholds
+    gate = create_custom_gate(
+        min_improvement=min_improvement,
+        min_success_rate=min_success_rate,
+        max_no_signal_rate=max_no_signal,
+    )
+
+    # Collect diagnostics from all results
+    diagnostics: list[RunDiagnostics] = []
+
+    for result_file in results:
+        try:
+            with result_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            diag = RunDiagnostics.analyze(
+                history_data=data,
+                termination_reason=data.get("termination_reason", "unknown"),
+                elapsed_time=data.get("elapsed_time", 0.0),
+                total_llm_calls=data.get("total_llm_calls", 0),
+                total_cache_hits=data.get("total_cache_hits", 0),
+            )
+            diagnostics.append(diag)
+        except Exception as e:
+            console.print(f"[yellow]![/yellow] Failed to parse {result_file.name}: {e}")
+
+    if not diagnostics:
+        console.print("[yellow]![/yellow] No valid results to check")
+        raise typer.Exit(1)
+
+    # Run gate check
+    result = gate.check_results(diagnostics)
+
+    # Display thresholds
+    console.print(
+        Panel(
+            f"[bold blue]Benchmark Gate Check[/bold blue]\n\n"
+            f"Min Improvement: {min_improvement:.2%}\n"
+            f"Min Success Rate: {min_success_rate:.0%}\n"
+            f"Max No-Signal Rate: {max_no_signal:.0%}",
+            title="Thresholds",
+        )
+    )
+
+    # Display gate result
+    report = gate.format_report(result)
+    console.print(report)
+
+    # Summary table
+    if result.summary:
+        summary_table = Table(title="Summary")
+        summary_table.add_column("Metric", style="cyan")
+        summary_table.add_column("Value", justify="right")
+
+        summary_table.add_row("Total Runs", str(result.summary.get("total_runs", 0)))
+        summary_table.add_row("Successful Runs", str(result.summary.get("successful_runs", 0)))
+        summary_table.add_row("Tasks Checked", str(result.summary.get("tasks_checked", 0)))
+        summary_table.add_row("Tasks Passed", str(result.summary.get("tasks_passed", 0)))
+
+        console.print(summary_table)
+
+    # Per-task results
+    if result.task_results:
+        task_table = Table(title="Per-Task Results")
+        task_table.add_column("Task", style="cyan")
+        task_table.add_column("Passed", justify="center")
+        task_table.add_column("Improvement", justify="right")
+        task_table.add_column("Details")
+
+        for task_name, task_result in result.task_results.items():
+            passed = task_result.get("passed", False)
+            improvement = task_result.get("improvement", 0.0)
+            details = task_result.get("status", "")
+
+            passed_str = "[green]✓[/green]" if passed else "[red]✗[/red]"
+            task_table.add_row(task_name, passed_str, f"{improvement:.4f}", str(details))
+
+        console.print(task_table)
+
+    # Final status
+    if result.passed:
+        console.print("\n[bold green]✓ GATE PASSED[/bold green]")
+    else:
+        console.print("\n[bold red]✗ GATE FAILED[/bold red]")
+        if result.failures:
+            console.print("\n[bold red]Failures:[/bold red]")
+            for failure in result.failures:
+                console.print(f"  [red]•[/red] {failure}")
+        if strict:
+            raise typer.Exit(1)
 
 
 @app.command()

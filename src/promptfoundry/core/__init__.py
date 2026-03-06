@@ -1,5 +1,14 @@
 """Core domain models and interfaces for PromptFoundry."""
 
+from promptfoundry.core.benchmark_gate import (
+    BenchmarkGate,
+    BenchmarkTask,
+    BenchmarkTaskType,
+    BenchmarkThreshold,
+    GateResult,
+    create_custom_gate,
+    get_default_suite,
+)
 from promptfoundry.core.config import (
     RuntimeConfig,
     RuntimeProfile,
@@ -27,9 +36,14 @@ from promptfoundry.core.protocols import (
 from promptfoundry.core.task import Example, Task
 
 __all__ = [
+    "BenchmarkGate",
     "BenchmarkSummary",
+    "BenchmarkTask",
+    "BenchmarkTaskType",
+    "BenchmarkThreshold",
     "Evaluator",
     "Example",
+    "GateResult",
     "GenerationMetrics",
     "Individual",
     "LLMClient",
@@ -47,8 +61,10 @@ __all__ = [
     "RuntimeProfile",
     "Task",
     "TerminationReason",
+    "create_custom_gate",
     "format_benchmark_summary",
     "format_diagnostics_report",
     "get_available_profiles",
+    "get_default_suite",
     "get_profile_description",
 ]

@@ -138,9 +138,33 @@ class RunDiagnostics:
         except ValueError:
             diag.termination_reason = TerminationReason.UNKNOWN
         
-        # Process generation data
-        generations = history_data.get("generations", [])
-        if not generations:
+        # Process generation data - handle both old and new formats
+        # New CLI format: history_data["history"]["generations"] = [...]
+        # Test format: history_data["generations"] = [...]
+        # Very old format: history_data["generations"] = int (count only)
+        history_obj = history_data.get("history", {})
+        generations = history_obj.get("generations", None)
+        
+        # Fallback to root-level generations if not in history object
+        if generations is None:
+            generations = history_data.get("generations", [])
+        
+        # Check if generations is actually a list (new format) vs int (old format)
+        if not isinstance(generations, list) or not generations:
+            # Fallback: try to get minimal data from root fields (old format)
+            best_fitness = history_data.get("best_fitness", 0.0)
+            total_gens = history_data.get("generations", 0)
+            
+            if isinstance(total_gens, int) and best_fitness > 0:
+                # Old format with just summary data
+                diag.total_generations = total_gens
+                diag.seed_fitness = 0.0  # Unknown in old format
+                diag.best_fitness = best_fitness
+                diag.improvement = 0.0  # Cannot determine without seed
+                diag.status = RunStatus.NO_SIGNAL if best_fitness < 0.1 else RunStatus.SUCCESS
+                diag.warnings.append("Limited data: old history format without per-generation details")
+                return diag
+            
             diag.status = RunStatus.FAILED
             diag.warnings.append("No generation data found")
             return diag
