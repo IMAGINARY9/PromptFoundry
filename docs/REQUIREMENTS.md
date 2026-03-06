@@ -29,6 +29,8 @@ PromptFoundry is an optimization-driven prompt engineering tool that treats prom
 | FR-008 | Track optimization history with full lineage | Should | 2 |
 | FR-009 | Support parallel prompt evaluation | Should | 2 |
 | FR-010 | Implement early stopping based on convergence criteria | Should | 2 |
+| FR-011 | Support configurable runtime profiles for slow-local, balanced, and throughput-oriented execution | Should | 2 |
+| FR-012 | Allow CLI and YAML configuration to tune optimization parameters without code edits | Must | 2 |
 
 ### 2.2 Task Definition
 
@@ -51,6 +53,9 @@ PromptFoundry is an optimization-driven prompt engineering tool that treats prom
 | FR-034 | Support custom Python scoring functions | Must | 1 |
 | FR-035 | Support composite objectives (weighted combination) | Should | 2 |
 | FR-036 | Support length/token budget constraints | Should | 2 |
+| FR-037 | Support cheap proxy metrics that do not require exact reference answers (format compliance, parser success, field coverage, token budget, lexical constraints) | Must | 2 |
+| FR-038 | Support staged evaluation pipelines that apply cheap filters before expensive scorers or judge models | Must | 2 |
+| FR-039 | Support partial-credit scoring for complex tasks where exact correctness is unavailable | Must | 2 |
 
 ### 2.4 LLM Integration
 
@@ -62,6 +67,7 @@ PromptFoundry is an optimization-driven prompt engineering tool that treats prom
 | FR-043 | Implement rate limiting and retry logic | Should | 2 |
 | FR-044 | Track token usage and costs | Should | 2 |
 | FR-045 | Support multiple LLM backends simultaneously | Could | 3 |
+| FR-046 | Expose backend-aware concurrency and cancellation controls | Must | 2 |
 
 ### 2.5 Interfaces
 
@@ -91,10 +97,11 @@ PromptFoundry is an optimization-driven prompt engineering tool that treats prom
 
 | ID | Requirement | Target |
 |----|-------------|--------|
-| NFR-001 | Single prompt evaluation latency | < 5s (network-dependent) |
-| NFR-002 | Support population sizes up to 100 | Required |
-| NFR-003 | Support optimization runs up to 500 generations | Required |
+| NFR-001 | Framework overhead excluding LLM inference | < 5% of run wall time on standard benchmark |
+| NFR-002 | No duplicate evaluation of identical `(prompt, input, expected, system)` tuples within one optimization run | Required |
+| NFR-003 | Runtime controls available without source edits | Required |
 | NFR-004 | Memory usage for standard runs | < 2GB |
+| NFR-005 | Cancellation returns control to the CLI promptly even if the remote backend finishes its current request later | Required |
 
 ### 3.2 Reliability
 
@@ -103,6 +110,7 @@ PromptFoundry is an optimization-driven prompt engineering tool that treats prom
 | NFR-010 | Graceful handling of LLM API failures | Required |
 | NFR-011 | Checkpoint and resume optimization runs | Required |
 | NFR-012 | Input validation with clear error messages | Required |
+| NFR-013 | Partial results and failure cause must remain inspectable after interrupted runs | Should |
 
 ### 3.3 Maintainability
 

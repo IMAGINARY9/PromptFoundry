@@ -1,0 +1,116 @@
+# Structured Data Extraction Task
+#
+# PURPOSE: Demonstrate fuzzy_match scoring showing a *gradient* of improvement
+#          vs the binary 0/1 of exact_match.
+#
+# WHY THIS IS HARD:
+#   The seed "Extract from the following text: {input}" is deliberately vague.
+#   The model's natural response style is verbose:
+#     "The product name is 'SuperWidget Pro', the price is $49.99, and the
+#      stock level is 150 units."
+#   fuzzy_match against "SuperWidget Pro | $49.99 | 150" is very low (~0.2).
+#
+#   After the optimizer discovers:
+#     • "Respond with only the answer." → reduces verbosity
+#     • "Format your response clearly." → nudges towards structured output
+#   the fitness climbs measurably each generation, showing a real curve.
+#
+#   Expected seed fitness:  ~15-25% (fuzzy match of verbose vs compact)
+#   Expected final fitness: ~70-90% after 15-20 generations
+#
+# SUGGESTED SEED PROMPT:
+#   "Extract the requested fields from the following text: {input}"
+#
+# RUN:
+#   python -m promptfoundry optimize \
+#     --task examples/extraction_task.yaml \
+#     --seed-prompt "Extract the requested fields from the following text: {input}" \
+#     --max-generations 40 \
+#     --population-size 14
+
+name: structured_extraction
+
+system_prompt: |
+  You are a data extraction assistant. Extract fields as instructed and output
+  ONLY the extracted values separated by " | ", in the order requested.
+  No labels, no sentences, no markdown — just the values.
+
+evaluator: fuzzy_match
+evaluator_config:
+  threshold: 0.5
+
+examples:
+  # ── product listings ─────────────────────────────────────────────────────
+  - input: >
+      Extract product name, price, and stock count (in that order, separated by " | ")
+      from: "The SuperWidget Pro is currently in stock with 150 units available.
+      It retails for $49.99."
+    expected: "SuperWidget Pro | $49.99 | 150"
+
+  - input: >
+      Extract product name, price, and stock count (in that order, separated by " | ")
+      from: "We have 32 units of BlueRocket Headphones left. Price: $129.00."
+    expected: "BlueRocket Headphones | $129.00 | 32"
+
+  - input: >
+      Extract product name, price, and stock count (in that order, separated by " | ")
+      from: "NanoChip USB-C Hub — $22.50, 8 remaining in inventory."
+    expected: "NanoChip USB-C Hub | $22.50 | 8"
+
+  # ── event details ────────────────────────────────────────────────────────
+  - input: >
+      Extract event name, date, and city (in that order, separated by " | ")
+      from: "The Annual Tech Summit will take place in Berlin on 14 November 2026."
+    expected: "Annual Tech Summit | 14 November 2026 | Berlin"
+
+  - input: >
+      Extract event name, date, and city (in that order, separated by " | ")
+      from: "Join us for CloudFest 2026 in Las Vegas on March 22."
+    expected: "CloudFest 2026 | March 22 | Las Vegas"
+
+  # ── contact records ──────────────────────────────────────────────────────
+  - input: >
+      Extract full name, email, and phone (in that order, separated by " | ")
+      from: "Please contact Dr. Maria Chen at mchen@example.com or call +1-555-0192."
+    expected: "Dr. Maria Chen | mchen@example.com | +1-555-0192"
+
+  - input: >
+      Extract full name, email, and phone (in that order, separated by " | ")
+      from: "Account manager: James O'Sullivan, jsullivan@corp.io, 020-7946-0321."
+    expected: "James O'Sullivan | jsullivan@corp.io | 020-7946-0321"
+
+  # ── measurements ─────────────────────────────────────────────────────────
+  - input: >
+      Extract temperature, humidity, and wind speed (in that order, separated by " | ")
+      from: "Current conditions: 18°C, 72% humidity, wind at 15 km/h."
+    expected: "18°C | 72% | 15 km/h"
+
+  - input: >
+      Extract temperature, humidity, and wind speed (in that order, separated by " | ")
+      from: "Weather report: Temperature 27°C, relative humidity 55%, gusts up to 30 km/h."
+    expected: "27°C | 55% | 30 km/h"
+
+validation_examples:
+  - input: >
+      Extract product name, price, and stock count (in that order, separated by " | ")
+      from: "The UltraSound Speaker (black) is available — only 5 left at $74.99."
+    expected: "UltraSound Speaker | $74.99 | 5"
+
+  - input: >
+      Extract full name, email, and phone (in that order, separated by " | ")
+      from: "Reach out to Fatima Al-Rashid at f.alrashid@mail.net, tel 07700 900412."
+    expected: "Fatima Al-Rashid | f.alrashid@mail.net | 07700 900412"
+
+metadata:
+  task_type: information_extraction
+  difficulty: medium-hard
+  note_on_evaluator: >
+    fuzzy_match is intentional here. Extraction tasks rarely match exactly
+    (different spacing, casing, punctuation). fuzzy_match gives partial credit
+    and produces a measurable fitness gradient across generations, making it
+    easier to observe the optimizer converging rather than just flipping 0→1.
+  why_hard: >
+    A bare seed prompt causes the model to produce full sentences with field labels.
+    The optimizer must discover format constraints ("Respond with only the answer.",
+    "Format your response clearly.") that push the model toward the compact
+    pipe-separated output the evaluator expects.

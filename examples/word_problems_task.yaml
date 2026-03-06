@@ -1,0 +1,106 @@
+# Word Problems Task
+#
+# PURPOSE: Demonstrate prompt optimization working on a real problem.
+#
+# WHY THIS IS HARD:
+#   Seed prompt "Solve: {input}" tells the model nothing about output format.
+#   A capable LLM will naturally respond with full sentences:
+#     "The baker has 21 cookies remaining."
+#   exact_match against "21" yields 0.0.
+#
+#   After the evolutionary optimizer adds the "Respond with only the answer."
+#   constraint (one of its built-in mutations), the model outputs just:
+#     "21"
+#   exact_match yields 1.0.
+#
+#   Expected seed fitness:  ~0%  (verbose answers fail exact match)
+#   Expected final fitness: ~80-100% after 5-10 generations
+#
+# SUGGESTED SEED PROMPT:
+#   "Solve: {input}"
+#
+# RUN:
+#   python -m promptfoundry optimize \
+#     --task examples/word_problems_task.yaml \
+#     --seed-prompt "Solve: {input}" \
+#     --max-generations 30 \
+#     --population-size 12
+
+name: word_math_problems
+
+system_prompt: |
+  You are a precise math solver. When asked for a number, output ONLY the number.
+  No explanation, no units, no sentence — just the bare numeric answer.
+
+evaluator: exact_match
+evaluator_config:
+  case_sensitive: false
+
+examples:
+  # ── basic multi-step ─────────────────────────────────────────────────────
+  - input: >
+      A baker made 48 cookies. She sold 15 in the morning and 12 in the afternoon.
+      How many cookies does she have left?
+    expected: "21"
+
+  - input: >
+      Two cars start at the same point. Car A travels at 65 mph for 3 hours.
+      Car B travels at 55 mph for 4 hours. What is the difference in their distances
+      travelled (in miles)?
+    expected: "25"
+
+  - input: >
+      A factory produces 350 items per hour during a standard 8-hour shift.
+      On one day, 2 hours are lost to maintenance. How many items are produced?
+    expected: "2100"
+
+  # ── proportional reasoning ──────────────────────────────────────────────
+  - input: >
+      If 3 pens cost $4.50, how many whole pens can you buy with $15.00?
+    expected: "10"
+
+  - input: >
+      A recipe needs 2.5 cups of flour to make 24 cookies.
+      How many full cups of flour are needed to make 60 cookies?
+    expected: "7"
+
+  # ── geometry ────────────────────────────────────────────────────────────
+  - input: >
+      A rectangle has a perimeter of 36 cm and a length of 10 cm.
+      What is its width in cm?
+    expected: "8"
+
+  - input: >
+      A circular garden has a radius of 7 metres.
+      What is its area rounded to the nearest whole number? (Use π ≈ 3.14159)
+    expected: "154"
+
+  # ── percentage / ratio ──────────────────────────────────────────────────
+  - input: >
+      A class of 30 students took a test. 40% passed. Of those who failed,
+      5 students received extra credit. How many students failed without
+      extra credit?
+    expected: "13"
+
+  - input: >
+      A shop offers a 25% discount on an item originally priced at $80.
+      What is the sale price in dollars?
+    expected: "60"
+
+validation_examples:
+  - input: >
+      A train covers 420 km in 3.5 hours. What is its average speed in km/h?
+    expected: "120"
+  - input: >
+      If a box holds 12 eggs and you need 100 eggs, how many full boxes must you buy?
+    expected: "9"
+
+metadata:
+  task_type: math_reasoning
+  difficulty: medium
+  requires_chain_of_thought: true
+  why_hard: >
+    Bare seed prompts produce verbose answers ("The answer is 21.") which fail
+    exact_match. The optimizer must discover that adding a strict output-format
+    instruction (e.g., "Respond with only the answer.") dramatically increases
+    the fitness score.

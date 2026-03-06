@@ -89,6 +89,7 @@ class TestOptimizerConfig:
         assert config.population_size == 10
         assert config.patience == 10
         assert config.batch_size == 5
+        assert config.max_concurrency == 1
 
     def test_custom_config(self) -> None:
         """Test custom configuration."""

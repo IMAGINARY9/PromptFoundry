@@ -1,8 +1,8 @@
 # PromptFoundry — Implementation Plan
 
-> **Version:** 1.1.0  
+> **Version:** 1.2.0  
 > **Status:** MVP 1 Complete  
-> **Last Updated:** 2026-03-07  
+> **Last Updated:** 2026-03-06  
 > **Authoritative Source:** This document is the single source of truth for development roadmap.
 
 ---
@@ -13,7 +13,20 @@ This document outlines the phased implementation plan for PromptFoundry. Develop
 
 ---
 
-## 2. MVP Versions
+## 2. Product Strategy
+
+PromptFoundry should not add search methods faster than it can prove they are useful. The next stage focuses on making one approach reliable:
+
+1. Build strong evaluation signals first, especially cheap proxy metrics for tasks without exact answers.
+2. Make runtime behavior explicit and configurable for slow local backends.
+3. Prove one optimization method on a benchmark suite before expanding the search-method surface area.
+4. Add new search methods only after the evolutionary baseline consistently beats manual prompt variants on representative tasks.
+
+This means MVP 2 is no longer "more algorithms first". It is "evaluation quality + performance discipline first".
+
+---
+
+## 3. MVP Versions
 
 ### ✅ MVP 1: CLI Optimizer (Foundation) — COMPLETED
 **Goal:** Working command-line tool with evolutionary optimization
@@ -29,44 +42,67 @@ This document outlines the phased implementation plan for PromptFoundry. Develop
 - ✅ JSON output with results saving
 - ✅ 3 benchmark tasks (sentiment, JSON formatting, arithmetic)
 
-### MVP 2: Extended Search & Reporting
-**Goal:** Multiple strategies, richer evaluation, better reports
+### MVP 2: Evaluation & Runtime Foundation
+**Goal:** Make evolutionary optimization useful on slow local models and on tasks without exact ground-truth matching
 
-**Timeline:** Week 4-6
+**Primary user value:** Users can optimize format-heavy and extraction-heavy tasks without relying on brittle exact-match labels or hand-editing source defaults for performance.
 
-**Deliverables:**
-- Bayesian optimization strategy (Optuna)
-- Grid search strategy
-- JSON schema evaluator
-- Performance visualization (matplotlib/plotly)
-- Ablation analysis utilities
-- Python library API (importable as package)
-- Enhanced checkpoint/resume
-
-### MVP 3: Web UI & Task Library
-**Goal:** Visual interface, pre-built tasks
-
-**Timeline:** Week 7-9
+**Success criteria:**
+- End-to-end optimization works from YAML/CLI configuration alone
+- Slow-local profile is supported explicitly (`population_size`, `max_concurrency`, patience, runtime budget)
+- At least 3 cheap proxy metrics are available and documented
+- Evolutionary search shows measurable improvement on at least 2 representative tasks:
+  - structured extraction
+  - format-constrained reasoning or QA
 
 **Deliverables:**
-- Gradio/Streamlit web interface
-- Real-time optimization visualization
-- Pre-built task templates
-- Save/load configurations
-- Budget-aware optimization
-- Documentation website
+- Runtime profiles and config-driven optimization controls
+- Cheap proxy metrics:
+  - output-shape / regex compliance
+  - parser success / schema compliance
+  - field coverage / keyword presence
+  - token and latency penalties
+- Staged evaluation pipeline: cheap filter -> richer scorer
+- Better reporting for cancellations, failures, and no-signal runs
+- Benchmark harness for quality, latency, and cost per generation
 
-### MVP 4: Advanced Features
-**Goal:** Production-ready with advanced capabilities
+### MVP 3: Evolutionary Quality
+**Goal:** Make one search method consistently competitive before broadening the strategy set
 
-**Timeline:** Week 10-12
+**Primary user value:** The evolutionary baseline produces repeatable improvements instead of random prompt churn.
+
+**Success criteria:**
+- Mutation operators outperform a manual baseline on the benchmark suite
+- Diversity preservation and lineage reporting explain why improvements happened
+- The optimizer avoids zero-signal runs when proxy metrics are available
 
 **Deliverables:**
-- Human-in-loop feedback
-- Multi-stage prompt chains
-- Domain-specific operators
-- Plugin architecture
-- Comprehensive benchmarks
+- Richer mutation operators (task-aware constraints, format directives, example-aware edits)
+- Diversity controls and duplicate suppression
+- Adaptive mutation schedules
+- Ablation utilities for operator quality
+- Benchmark-based acceptance gates for future strategy additions
+
+### MVP 4: Additional Search Methods (Experimental)
+**Goal:** Add alternative search methods only after the evolutionary baseline is benchmarked and stable
+
+**Primary user value:** Users get method choice backed by benchmark evidence, not feature count.
+
+**Deliverables:**
+- Bayesian optimization as experimental strategy
+- Grid/template search for bounded prompt spaces
+- Side-by-side strategy comparison on common tasks
+- Strategy selection guidance based on task type and runtime budget
+
+### MVP 5: Interfaces & Workflow
+**Goal:** Package the proven core into better user-facing workflows
+
+**Deliverables:**
+- Python library API
+- Web UI for monitoring and task setup
+- Task library and templates
+- Save/load experiment presets
+- Documentation website with benchmark-backed guidance
 
 ---
 
@@ -145,49 +181,41 @@ This document outlines the phased implementation plan for PromptFoundry. Develop
 
 ---
 
-## 4. MVP 2 Detailed Plan
+## 5. MVP 2 Detailed Plan
 
-### Phase 2.1: Bayesian Optimization (Day 1-3)
-- [ ] Add optuna dependency
-- [ ] Implement `BayesianOptStrategy` with Optuna backend
-- [ ] Create prompt parameterization for Bayesian search
-- [ ] Add strategy registration
-- [ ] Write unit tests
+### Phase 2.1: Runtime Controls (Day 1-2)
+- [ ] Load optimization settings from YAML with clear CLI override precedence
+- [ ] Add runtime profile presets (`slow-local`, `balanced`, `throughput`)
+- [ ] Expose concurrency, patience, and budget controls in CLI and config
+- [ ] Write unit tests for config precedence and profile selection
 
-### Phase 2.2: Grid Search (Day 4-5)
-- [ ] Implement `GridSearchStrategy`
-- [ ] Support template variable combinations
-- [ ] Add exhaustive and random sampling modes
-- [ ] Write unit tests
+### Phase 2.2: Cheap Proxy Metrics (Day 3-5)
+- [ ] Implement output-shape / regex compliance evaluator improvements
+- [ ] Implement parser-success / schema-success evaluator
+- [ ] Implement field-coverage / required-key evaluator
+- [ ] Implement latency/token penalty metric
+- [ ] Document when to use cheap metrics vs exact metrics
 
-### Phase 2.3: JSON Schema Evaluator (Day 6-7)
-- [ ] Add jsonschema dependency
-- [ ] Implement `JSONSchemaEvaluator`
-- [ ] Support partial schema validation
-- [ ] Write unit tests
+### Phase 2.3: Staged Evaluation Pipeline (Day 6-8)
+- [ ] Add multi-stage evaluator pipeline support
+- [ ] Support cheap pre-filtering before expensive scorers
+- [ ] Support partial-credit aggregation
+- [ ] Write tests for stage ordering and fallback behavior
 
-### Phase 2.4: Visualization (Day 8-10)
-- [ ] Add plotly/matplotlib dependency
-- [ ] Implement fitness curve plotting
-- [ ] Implement population diversity visualization
-- [ ] Add export to HTML/PNG
-- [ ] Add `visualize` CLI command
+### Phase 2.4: Reporting & Diagnostics (Day 9-10)
+- [ ] Report no-signal runs explicitly
+- [ ] Persist enough detail to inspect interrupted runs
+- [ ] Show latency/cost per generation in reports
+- [ ] Add benchmark summary output for task/operator comparison
 
-### Phase 2.5: Python Library API (Day 11-12)
-- [ ] Create high-level `optimize()` function
-- [ ] Create `load_task()` convenience function
-- [ ] Document public API
-- [ ] Add Jupyter notebook examples
-
-### Phase 2.6: Enhanced Checkpointing (Day 13-14)
-- [ ] Implement full population state save/restore
-- [ ] Add checkpoint browsing
-- [ ] Add checkpoint comparison
-- [ ] Write checkpoint tests
+### Phase 2.5: Benchmark Gate (Day 11-14)
+- [ ] Define benchmark suite for extraction, formatting, and constrained reasoning
+- [ ] Establish minimum improvement thresholds over baseline prompts
+- [ ] Freeze MVP 2 only when the evolutionary baseline clears benchmark gates
 
 ---
 
-## 4. Technical Decisions
+## 6. Technical Decisions
 
 ### 4.1 Language & Runtime
 - **Python 3.10+**: Modern syntax, pattern matching, improved typing
@@ -214,18 +242,19 @@ This document outlines the phased implementation plan for PromptFoundry. Develop
 
 ---
 
-## 5. Risk Mitigation
+## 7. Risk Mitigation
 
 | Risk | Mitigation |
 |------|------------|
 | LLM API instability | Comprehensive retry logic, mock client for tests |
-| Slow optimization convergence | Configurable early stopping, checkpointing |
-| Complex mutation semantics | Start simple (text substitution), iterate |
+| Slow optimization convergence | Cheap proxy metrics, staged evaluation, benchmark gates |
+| Complex mutation semantics | Improve one operator family at a time and prove value on benchmarks |
 | Scope creep | Strict MVP boundaries, feature backlog |
+| Performance depends on backend | Runtime profiles, explicit concurrency controls, framework-overhead targets |
 
 ---
 
-## 6. Quality Gates
+## 8. Quality Gates
 
 ### Per-MVP Gates
 
@@ -236,6 +265,15 @@ This document outlines the phased implementation plan for PromptFoundry. Develop
 | Lint | ruff passes with no warnings |
 | Docs | All public APIs documented |
 | Demo | End-to-end demo works |
+| Benchmarks | MVP-specific benchmark gates are met before next search method is added |
+
+### MVP Acceptance Gates
+
+| MVP | Gate |
+|-----|------|
+| MVP 2 | Cheap-metric pipeline improves at least 2 benchmark tasks with config-only tuning |
+| MVP 3 | Evolutionary search beats manual baseline on the benchmark suite consistently |
+| MVP 4 | New strategy is added only if it beats or complements the evolutionary baseline on benchmarks |
 
 ### Release Checklist
 - [ ] All quality gates pass
@@ -246,7 +284,7 @@ This document outlines the phased implementation plan for PromptFoundry. Develop
 
 ---
 
-## 7. Development Workflow
+## 9. Development Workflow
 
 ### Branch Strategy
 ```

@@ -10,7 +10,7 @@
 
 ## Overview
 
-PromptFoundry treats **prompt engineering as a systematic optimization problem**. Instead of manually tweaking prompts, define an objective function and let the system search the prompt space using evolutionary strategies, Bayesian optimization, or gradient-free methods.
+PromptFoundry treats **prompt engineering as a systematic optimization problem**. The current implementation focuses on an evolutionary search loop with pluggable evaluators, while the roadmap expands into proxy-metric pipelines and additional search methods only after the baseline method is reliable.
 
 ### Key Features
 
@@ -18,8 +18,16 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 - 🔌 **LLM-agnostic**: Works with any OpenAI-compatible API (including local models)
 - 📊 **Multiple evaluators**: Exact match, fuzzy match, regex, custom functions
 - 🚀 **Rate limiting**: Built-in token bucket for API compliance  
-- 📈 **Progress tracking**: Rich CLI with progress bars and result saving
+- 📈 **Progress tracking**: Rich CLI with progress bars, per-generation timing, and cancelable runs
+- ⚡ **Caching & concurrency**: Avoids duplicate LLM requests and evaluates examples in parallel
 - 🛠️ **Extensible**: Protocol-based interfaces for custom components
+
+### Current Scope
+
+- Current search method: evolutionary optimization only
+- Current strengths: format-constrained tasks, extraction, classification, and tasks with cheap proxy metrics
+- Current limitation: performance is still dominated by the LLM backend; the framework now exposes runtime controls through YAML and CLI so slow local models can be tuned explicitly
+- Planned next step: improve evaluation quality and runtime efficiency before adding more search algorithms
 
 ---
 
@@ -47,7 +55,8 @@ python -m promptfoundry optimize \
   --task examples/sentiment_task.yaml \
   --seed-prompt "Classify the sentiment: {input}" \
   --max-generations 20 \
-  --population-size 10
+  --population-size 4 \
+  --max-concurrency 1
 
 # Validate a configuration file
 python -m promptfoundry validate --config config/config.example.yaml
@@ -63,7 +72,7 @@ python -m promptfoundry report output/optimization_20260307_120000.json
 
 | Command | Description |
 |---------|-------------|
-| `optimize` | Run prompt optimization on a task |
+| `optimize` | Run prompt optimization on a task (Ctrl-C interrupts, partial results may be lost) |
 | `validate` | Validate configuration file |
 | `report` | View optimization result details |
 | `list-results` | List all saved optimization results |
@@ -71,6 +80,20 @@ python -m promptfoundry report output/optimization_20260307_120000.json
 | `list-strategies` | Show available strategies |
 | `list-evaluators` | Show available evaluators |
 | `version` | Show version information |
+
+### Tuning Slow Local Models
+
+For slow local backends, tune the optimizer through `config/config.example.yaml` or CLI overrides instead of changing source defaults. Recommended starting point for text-generation-webui:
+
+```yaml
+optimization:
+  max_generations: 10
+  population_size: 2-4
+  max_concurrency: 1
+  patience: 3-5
+```
+
+Prefer cheaper proxy metrics first, then reserve exact-match or expensive judge-style checks for a shortlist of promising candidates.
 
 ---
 

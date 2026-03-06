@@ -51,7 +51,8 @@ class OptimizerConfig:
         patience: Generations without improvement before early stopping.
         checkpoint_dir: Directory for saving checkpoints (None to disable).
         checkpoint_frequency: Save checkpoint every N generations.
-        batch_size: Number of prompts to evaluate concurrently.
+        batch_size: Number of prompts to evaluate per outer batch.
+        max_concurrency: Maximum number of concurrent LLM requests.
     """
 
     max_generations: int = 50
@@ -60,6 +61,7 @@ class OptimizerConfig:
     checkpoint_dir: str | None = None
     checkpoint_frequency: int = 5
     batch_size: int = 5
+    max_concurrency: int = 1
 
 
 @dataclass
@@ -143,6 +145,13 @@ class Optimizer:
         self._history: OptimizationHistory | None = None
         self._state: OptimizationState | None = None
 
+        # Cache exact evaluations within a single run.
+        # avoids re‑evaluating identical combinations when evolution produces
+        # duplicates or when checkpoint/resume happens.
+        self._score_cache: dict[tuple[str, str, str, str | None], float] = {}
+        max_concurrency = max(1, self.config.max_concurrency)
+        self._sem = asyncio.Semaphore(max_concurrency)
+
     def add_callback(self, callback: ProgressCallback) -> None:
         """Add a progress callback.
 
@@ -194,7 +203,11 @@ class Optimizer:
         # Main optimization loop
         while not self._should_terminate():
             # Evaluate current population
-            fitness_scores = await self._evaluate_population(population, task)
+            try:
+                fitness_scores = await self._evaluate_population(population, task)
+            except asyncio.CancelledError:
+                # optimization was cancelled (e.g. Ctrl-C); stop early
+                break
             self._state.total_evaluations += len(population)
 
             # Find generation best
@@ -263,7 +276,7 @@ class Optimizer:
         # Process in batches for efficiency
         for i in range(0, len(population), self.config.batch_size):
             batch = population.individuals[i : i + self.config.batch_size]
-            batch_scores = await self._evaluate_batch(batch, task.examples)
+            batch_scores = await self._evaluate_batch(batch, task.examples, task.system_prompt)
             fitness_scores.extend(batch_scores)
 
         return fitness_scores
@@ -272,34 +285,42 @@ class Optimizer:
         self,
         individuals: list[Individual],
         examples: list[Example],
+        system_prompt: str | None = None,
     ) -> list[float]:
         """Evaluate a batch of individuals against examples.
 
-        Args:
-            individuals: Batch of individuals to evaluate.
-            examples: Examples for evaluation.
-
-        Returns:
-            List of fitness scores.
+        This version launches all example evaluations concurrently and uses an
+        in‑memory cache to avoid duplicated LLM requests.  A semaphore throttles
+        concurrent calls to protect slow or single‑threaded LLM backends.
         """
+        async def _score_example(ind: Individual, example: Example) -> float:
+            key = (
+                ind.prompt.text,
+                example.input,
+                example.expected_output,
+                system_prompt,
+            )
+            if key in self._score_cache:
+                return self._score_cache[key]
+
+            prompt_text = self._format_prompt(ind.prompt, example)
+            try:
+                async with self._sem:
+                    completion = await self.llm_client.complete(
+                        prompt_text, system_prompt=system_prompt
+                    )
+                score = self.evaluator.evaluate(completion, example.expected_output)
+            except Exception:
+                score = 0.0
+
+            self._score_cache[key] = score
+            return score
+
         scores: list[float] = []
 
         for ind in individuals:
-            ind_scores: list[float] = []
-
-            # Evaluate against each example
-            for example in examples:
-                # Generate completion
-                prompt_text = self._format_prompt(ind.prompt, example)
-                try:
-                    completion = await self.llm_client.complete(prompt_text)
-                    score = self.evaluator.evaluate(completion, example.expected_output)
-                except Exception:
-                    score = 0.0  # Failed completions get zero score
-
-                ind_scores.append(score)
-
-            # Aggregate example scores to individual fitness
+            tasks = [_score_example(ind, ex) for ex in examples]
+            ind_scores = await asyncio.gather(*tasks)
             fitness = self.evaluator.aggregate(ind_scores)
             scores.append(fitness)
 

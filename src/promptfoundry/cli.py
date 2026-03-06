@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -113,28 +114,33 @@ def optimize(
         "-c",
         help="Path to configuration YAML file",
     ),
-    strategy: str = typer.Option(
-        "evolutionary",
+    strategy: str | None = typer.Option(
+        None,
         "--strategy",
-        help="Optimization strategy: evolutionary, bayesian, grid",
+        help="Optimization strategy override",
     ),
-    max_generations: int = typer.Option(
-        50,
+    max_generations: int | None = typer.Option(
+        None,
         "--max-generations",
         "-g",
-        help="Maximum number of generations",
+        help="Maximum number of generations override",
     ),
-    population_size: int = typer.Option(
-        20,
+    population_size: int | None = typer.Option(
+        None,
         "--population-size",
         "-p",
-        help="Population size",
+        help="Population size override",
     ),
-    output_dir: Path = typer.Option(
-        Path("./output"),
+    max_concurrency: int | None = typer.Option(
+        None,
+        "--max-concurrency",
+        help="Maximum concurrent LLM requests override",
+    ),
+    output_dir: Path | None = typer.Option(
+        None,
         "--output",
         "-o",
-        help="Output directory for results",
+        help="Output directory override",
     ),
     verbose: bool = typer.Option(
         False,
@@ -148,16 +154,6 @@ def optimize(
     Example:
         promptfoundry optimize --task task.yaml --seed-prompt "Classify: {input}"
     """
-    console.print(
-        Panel(
-            f"[bold blue]PromptFoundry[/bold blue] - Prompt Optimization\n"
-            f"Task: {task.name}\n"
-            f"Strategy: {strategy}\n"
-            f"Generations: {max_generations}",
-            title="Starting Optimization",
-        )
-    )
-
     # Load task
     try:
         task_obj, evaluator_type, evaluator_config = _load_task(task)
@@ -166,47 +162,89 @@ def optimize(
         console.print(f"[red]✗[/red] Failed to load task: {e}")
         raise typer.Exit(1)
 
-    # Load LLM config
+    config_data: dict[str, Any] = {}
+
+    # Load config
     llm_config = LLMConfig()
     if config:
         try:
             with config.open("r", encoding="utf-8") as f:
-                config_data = yaml.safe_load(f)
+                config_data = yaml.safe_load(f) or {}
             if "llm" in config_data:
                 llm_config = LLMConfig.from_dict(config_data["llm"])
             console.print(f"[green]✓[/green] Loaded config: {config.name}")
         except Exception as e:
             console.print(f"[yellow]![/yellow] Failed to load config: {e}, using defaults")
+            config_data = {}
+
+    optimization_settings = config_data.get("optimization", {})
+    strategy_settings = config_data.get("strategy", {}).get("evolutionary", {})
+    output_settings = config_data.get("output", {})
+
+    effective_strategy = strategy or optimization_settings.get("strategy", "evolutionary")
+    effective_max_generations = max_generations or optimization_settings.get("max_generations", 50)
+    effective_population_size = population_size or optimization_settings.get(
+        "population_size", OptimizerConfig().population_size
+    )
+    effective_patience = optimization_settings.get("patience", 10)
+    effective_max_concurrency = max_concurrency or optimization_settings.get(
+        "max_concurrency", OptimizerConfig().max_concurrency
+    )
+    effective_output_dir = output_dir or Path(output_settings.get("directory", "./output"))
+
+    console.print(
+        Panel(
+            f"[bold blue]PromptFoundry[/bold blue] - Prompt Optimization\n"
+            f"Task: {task.name}\n"
+            f"Strategy: {effective_strategy}\n"
+            f"Generations: {effective_max_generations}\n"
+            f"Population: {effective_population_size}\n"
+            f"Max Concurrency: {effective_max_concurrency}",
+            title="Starting Optimization",
+        )
+    )
 
     # Validate strategy
-    if strategy != "evolutionary":
-        console.print(f"[yellow]![/yellow] Strategy '{strategy}' not yet implemented, using 'evolutionary'")
-        strategy = "evolutionary"
+    if effective_strategy != "evolutionary":
+        console.print(
+            f"[yellow]![/yellow] Strategy '{effective_strategy}' not yet implemented, using 'evolutionary'"
+        )
+        effective_strategy = "evolutionary"
 
     # Create components
     evaluator = _get_evaluator(evaluator_type, evaluator_config)
     console.print(f"[green]✓[/green] Using evaluator: {evaluator_type}")
 
-    strategy_config = EvolutionaryConfig(population_size=population_size)
+    strategy_config = EvolutionaryConfig(
+        population_size=effective_population_size,
+        max_generations=effective_max_generations,
+        patience=effective_patience,
+        seed=optimization_settings.get("seed"),
+        mutation_rate=strategy_settings.get("mutation_rate", 0.3),
+        crossover_rate=strategy_settings.get("crossover_rate", 0.7),
+        tournament_size=strategy_settings.get("tournament_size", 3),
+        elitism=strategy_settings.get("elitism", 2),
+    )
     optimization_strategy = GeneticAlgorithmStrategy(strategy_config)
     console.print(f"[green]✓[/green] Using strategy: evolutionary")
 
     # Create optimizer config
     optimizer_config = OptimizerConfig(
-        max_generations=max_generations,
-        population_size=population_size,
-        patience=10,
+        max_generations=effective_max_generations,
+        population_size=effective_population_size,
+        patience=effective_patience,
+        max_concurrency=effective_max_concurrency,
     )
 
     # Ensure output directory exists
-    output_dir.mkdir(parents=True, exist_ok=True)
+    effective_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create seed prompt
     seed = Prompt(text=seed_prompt)
     console.print(f"[green]✓[/green] Created seed prompt\n")
 
     # Progress tracking
-    progress_data: dict[str, Any] = {"generation": 0, "best_fitness": 0.0}
+    progress_data: dict[str, Any] = {"generation": 0, "best_fitness": 0.0, "last_time": time.time()}
 
     # Run optimization
     async def _run_optimization() -> OptimizationResult:
@@ -238,12 +276,16 @@ def optimize(
             avg_fitness: float,
             best_prompt_text: str,
         ) -> None:
+            now = time.time()
+            last = progress_data.get("last_time", now)
+            delta = now - last
             progress_data["generation"] = generation
             progress_data["best_fitness"] = best_fitness
+            progress_data["last_time"] = now
             if verbose:
                 console.print(
                     f"  Gen {generation}: best={best_fitness:.4f}, "
-                    f"avg={avg_fitness:.4f}"
+                    f"avg={avg_fitness:.4f}  (took {delta:.1f}s)"
                 )
 
         optimizer.add_callback(_progress_callback)  # type: ignore[arg-type]
@@ -261,7 +303,7 @@ def optimize(
         ) as progress:
             progress_task = progress.add_task(
                 "[cyan]Optimizing prompts...",
-                total=max_generations,
+                total=effective_max_generations,
             )
 
             # Wrap callback to update progress bar
@@ -276,16 +318,19 @@ def optimize(
             ) -> None:
                 for cb in original_callbacks:
                     cb(generation, best_fitness, avg_fitness, best_prompt_text)
-                progress.update(progress_task, completed=generation)
+                progress.update(progress_task, completed=generation + 1)
             
             optimizer.add_callback(_wrapped_callback)  # type: ignore[arg-type]
 
-            result = await optimizer.optimize(
-                seed_prompt=seed,
-                task=task_obj,
-            )
+            try:
+                result = await optimizer.optimize(
+                    seed_prompt=seed,
+                    task=task_obj,
+                )
+            finally:
+                # ensure client is closed even if cancelled or error occurs
+                await llm_client.close()
 
-        await llm_client.close()
         return result
 
     try:
@@ -293,6 +338,14 @@ def optimize(
         best_prompt = result.best_prompt
         best_fitness = result.best_score
         total_generations = result.total_generations
+    except KeyboardInterrupt:
+        console.print("\n[red]✗[/red] Optimization cancelled by user.")
+        # We may or may not have a partial result; nothing to print further.
+        raise typer.Exit(1)
+    except typer.Exit:
+        # a controlled exit was already signalled (e.g. health check failed);
+        # simply propagate to avoid extra error messages or traceback.
+        raise
     except Exception as e:
         console.print(f"\n[red]✗[/red] Optimization failed: {e}")
         if verbose:
@@ -313,17 +366,19 @@ def optimize(
     )
 
     # Save results
-    result_file = output_dir / f"optimization_{datetime.now():%Y%m%d_%H%M%S}.json"
     result_data = {
         "task": task_obj.name,
         "seed_prompt": seed_prompt,
         "best_prompt": best_prompt.text,
         "best_fitness": best_fitness,
         "generations": total_generations,
-        "strategy": strategy,
-        "population_size": population_size,
+        "strategy": effective_strategy,
+        "population_size": effective_population_size,
+        "max_concurrency": effective_max_concurrency,
         "timestamp": datetime.now().isoformat(),
     }
+
+    result_file = effective_output_dir / f"optimization_{datetime.now():%Y%m%d_%H%M%S}.json"
     
     with result_file.open("w", encoding="utf-8") as f:
         json.dump(result_data, f, indent=2)

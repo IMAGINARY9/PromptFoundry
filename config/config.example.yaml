@@ -7,8 +7,9 @@
 optimization:
   strategy: evolutionary
   max_generations: 50
-  population_size: 20
+  population_size: 4  # reasonable when LLM is slow
   patience: 10
+  max_concurrency: 1  # text-generation-webui is often effectively single-worker
   seed: null  # Set for reproducibility
 
 # =============================================================================
