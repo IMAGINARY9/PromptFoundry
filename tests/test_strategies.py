@@ -101,6 +101,28 @@ class TestGeneticAlgorithmStrategy:
         # Should have some variation
         assert len(modified_texts) > 1 or prompt.text not in modified_texts
 
+    def test_mutation_avoids_noop_for_short_seed(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Test that weak short prompts still receive a meaningful mutation."""
+        prompt = Prompt(text="Solve: {input}")
+
+        mutated = strategy._mutate_prompt(prompt)
+
+        assert mutated.text != prompt.text
+        assert "{input}" in mutated.text
+
+    def test_initialize_generates_unique_variants_for_short_seed(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Test that initialization does not collapse into duplicate prompts."""
+        prompt = Prompt(text="Solve: {input}")
+
+        population = strategy.initialize(prompt, population_size=6)
+
+        texts = [individual.prompt.text for individual in population]
+        assert len(set(texts)) == len(texts)
+
     def test_crossover_produces_offspring(
         self, strategy: GeneticAlgorithmStrategy
     ) -> None:

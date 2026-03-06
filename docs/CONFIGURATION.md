@@ -117,6 +117,11 @@ llm:
   timeout: 30
   max_retries: 3
   retry_delay: 1.0
+  # Note: if using a runtime profile (e.g., slow-local) and no explicit
+  # LLM timeout is provided, the optimizer will inherit
+  # `runtime_config.timeout_per_request` automatically.
+  # This ensures the LLM client honors slow-local timeouts.
+
 
 # =============================================================================
 # Evaluation Settings

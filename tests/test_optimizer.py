@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -156,6 +157,35 @@ class TestOptimizer:
 
         assert result.history is not None
         assert len(result.history.generations) > 0
+
+    @pytest.mark.asyncio
+    async def test_result_to_dict_always_includes_history_generations(
+        self, optimizer: Optimizer, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Test serialized results always contain nested per-generation history."""
+        result = await optimizer.optimize(seed_prompt, task)
+
+        data = result.to_dict()
+
+        assert "history" in data
+        assert "generations" in data["history"]
+        assert len(data["history"]["generations"]) == result.total_generations
+        assert data["seed_fitness"] == pytest.approx(
+            result.history.generations[0].best_fitness
+        )
+
+    @pytest.mark.asyncio
+    async def test_result_to_dict_is_json_serializable(
+        self, optimizer: Optimizer, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Test serialized optimization results can be written directly to JSON."""
+        result = await optimizer.optimize(seed_prompt, task)
+
+        payload = result.to_dict()
+
+        encoded = json.dumps(payload)
+        decoded = json.loads(encoded)
+        assert decoded["history"]["generations"]
 
     @pytest.mark.asyncio
     async def test_optimize_calls_strategy(

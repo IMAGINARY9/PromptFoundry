@@ -68,6 +68,23 @@ app = typer.Typer(
 console = Console()
 
 
+def _apply_runtime_llm_overrides(
+    llm_config: LLMConfig,
+    runtime_config: RuntimeConfig,
+    llm_settings: dict[str, Any] | None = None,
+) -> LLMConfig:
+    """Apply runtime-derived LLM overrides with config-file precedence.
+
+    Runtime profiles define request timeout behavior for slow local backends.
+    If the user did not explicitly set an LLM timeout in config, inherit the
+    effective runtime timeout so the actual HTTP client matches the profile.
+    """
+    llm_settings = llm_settings or {}
+    if "timeout" not in llm_settings and "timeout_per_request" not in llm_settings:
+        llm_config.timeout = runtime_config.timeout_per_request
+    return llm_config
+
+
 def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
     """Load a task from a YAML file.
 
@@ -256,6 +273,12 @@ def optimize(
         runtime_budget_seconds=runtime_budget,
     )
 
+    llm_config = _apply_runtime_llm_overrides(
+        llm_config,
+        runtime_config,
+        config_data.get("llm", {}),
+    )
+
     strategy_settings = config_data.get("strategy", {}).get("evolutionary", {})
     output_settings = config_data.get("output", {})
     effective_strategy = strategy or config_data.get("optimization", {}).get(
@@ -442,38 +465,16 @@ def optimize(
     result_data = {
         "task": task_obj.name,
         "seed_prompt": seed_prompt,
-        "best_prompt": best_prompt.text,
-        "best_fitness": best_fitness,
-        "generations": total_generations,
         "strategy": effective_strategy,
         "profile": runtime_config.profile.value,
         "population_size": runtime_config.population_size,
         "max_concurrency": runtime_config.max_concurrency,
         "timestamp": datetime.now().isoformat(),
-        # Diagnostics data (MVP 2)
-        "elapsed_time": result.elapsed_time,
-        "termination_reason": result.termination_reason,
-        "total_evaluations": result.total_evaluations,
-        "total_llm_calls": result.total_llm_calls,
-        "total_cache_hits": result.total_cache_hits,
-        "convergence_generation": result.convergence_generation,
+        "best_prompt": best_prompt.text,
+        "best_fitness": best_fitness,
+        "generations": total_generations,
+        **result.to_dict(),
     }
-
-    # Save history with per-generation data if available
-    if result.history and result.history.generations:
-        result_data["history"] = {
-            "generations": [
-                {
-                    "generation": g.generation,
-                    "best_fitness": g.best_fitness,
-                    "average_fitness": g.average_fitness,
-                    "population_size": g.population_size,
-                    "timestamp": g.timestamp,
-                    "metadata": g.metadata,
-                }
-                for g in result.history.generations
-            ],
-        }
 
     result_file = effective_output_dir / f"optimization_{datetime.now():%Y%m%d_%H%M%S}.json"
 

@@ -82,6 +82,10 @@ class OptimizationResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
+        seed_fitness = 0.0
+        if self.history.generations:
+            seed_fitness = self.history.generations[0].best_fitness
+
         return {
             "best_prompt": self.best_prompt.text,
             "best_score": self.best_score,
@@ -92,6 +96,8 @@ class OptimizationResult:
             "termination_reason": self.termination_reason,
             "total_llm_calls": self.total_llm_calls,
             "total_cache_hits": self.total_cache_hits,
+            "seed_fitness": seed_fitness,
+            "history": self.history.to_dict(),
         }
 
 
@@ -182,7 +188,14 @@ class OptimizationHistory:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        data = {
+        data = self.to_dict()
+
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert history to dictionary for serialization."""
+        return {
             "task_name": self.task_name,
             "seed_prompt": self.seed_prompt,
             "start_time": self.start_time,
@@ -200,9 +213,6 @@ class OptimizationHistory:
                 for g in self.generations
             ],
         }
-
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
 
     @classmethod
     def load(cls, path: str | Path) -> OptimizationHistory:

@@ -74,10 +74,12 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 parent_ids=[],
             )
         )
+        seen_texts = {seed_prompt.text}
 
         # Generate variants through mutation
         for _ in range(population_size - 1):
-            mutated = self._mutate_prompt(seed_prompt)
+            mutated = self._create_unique_prompt(seed_prompt, seen_texts)
+            seen_texts.add(mutated.text)
             individuals.append(
                 Individual(
                     prompt=mutated,
@@ -114,7 +116,9 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         next_gen = population.generation + 1
 
         # Elitism: preserve top individuals
+        seen_texts: set[str] = set()
         for elite in evaluated[: self.evo_config.elitism]:
+            seen_texts.add(elite.prompt.text)
             new_individuals.append(
                 Individual(
                     prompt=elite.prompt,
@@ -143,7 +147,11 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             if random.random() < self.evo_config.mutation_rate:
                 child2_prompt = self._mutate_prompt(child2_prompt)
 
+            child1_prompt = self._ensure_unique_child(child1_prompt, seen_texts)
+            child2_prompt = self._ensure_unique_child(child2_prompt, seen_texts)
+
             # Add children
+            seen_texts.add(child1_prompt.text)
             new_individuals.append(
                 Individual(
                     prompt=child1_prompt,
@@ -152,6 +160,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 )
             )
             if len(new_individuals) < len(population):
+                seen_texts.add(child2_prompt.text)
                 new_individuals.append(
                     Individual(
                         prompt=child2_prompt,
@@ -241,10 +250,63 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             self._mutate_swap_words,
         ]
 
-        mutation_fn = random.choice(mutations)
-        new_text = mutation_fn(prompt.text)
+        random.shuffle(mutations)
+        for mutation_fn in mutations:
+            new_text = mutation_fn(prompt.text)
+            if new_text != prompt.text:
+                return prompt.with_text(new_text)
 
-        return prompt.with_text(new_text)
+        return prompt.with_text(self._force_non_noop_mutation(prompt.text))
+
+    def _create_unique_prompt(self, prompt: Prompt, seen_texts: set[str]) -> Prompt:
+        """Create a prompt variant with text not already present in the population."""
+        candidate = prompt
+        for _ in range(8):
+            candidate = self._mutate_prompt(prompt)
+            if candidate.text not in seen_texts:
+                return candidate
+
+        return prompt.with_text(self._force_non_noop_mutation(prompt.text, seen_texts))
+
+    def _ensure_unique_child(self, prompt: Prompt, seen_texts: set[str]) -> Prompt:
+        """Ensure offspring prompt text is unique within the next generation."""
+        if prompt.text not in seen_texts:
+            return prompt
+
+        for _ in range(8):
+            candidate = self._mutate_prompt(prompt)
+            if candidate.text not in seen_texts:
+                return candidate
+
+        return prompt.with_text(self._force_non_noop_mutation(prompt.text, seen_texts))
+
+    def _force_non_noop_mutation(
+        self,
+        text: str,
+        seen_texts: set[str] | None = None,
+    ) -> str:
+        """Append the first missing constraint to guarantee a text change."""
+        constraints = [
+            " Be concise.",
+            " Respond with only the answer.",
+            " Do not explain your reasoning.",
+            " Think step by step.",
+            " Be precise and accurate.",
+            " Format your response clearly.",
+        ]
+
+        used_texts = seen_texts or set()
+        for constraint in constraints:
+            candidate = text.rstrip() + constraint
+            if candidate != text and candidate not in used_texts:
+                return candidate
+
+        suffix = 2
+        while True:
+            candidate = f"{text.rstrip()} Variant {suffix}."
+            if candidate not in used_texts:
+                return candidate
+            suffix += 1
 
     def _mutate_rephrase(self, text: str) -> str:
         """Rephrase by substituting common instruction words."""
@@ -280,11 +342,13 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             " Format your response clearly.",
         ]
 
-        # Only add if not already present
-        constraint = random.choice(constraints)
-        if constraint.strip().lower() not in text.lower():
-            # Add at the end
-            text = text.rstrip() + constraint
+        missing_constraints = [
+            constraint
+            for constraint in constraints
+            if constraint.strip().lower() not in text.lower()
+        ]
+        if missing_constraints:
+            text = text.rstrip() + random.choice(missing_constraints)
 
         return text
 
