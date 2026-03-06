@@ -5,11 +5,17 @@
 # Optimization Settings
 # =============================================================================
 optimization:
+  # Runtime profile: slow-local, balanced, or throughput
+  # Profiles provide sensible defaults for different deployment scenarios.
+  # Individual settings below will override profile defaults.
+  profile: slow-local
+  
   strategy: evolutionary
   max_generations: 50
   population_size: 4  # reasonable when LLM is slow
   patience: 10
   max_concurrency: 1  # text-generation-webui is often effectively single-worker
+  runtime_budget: 0   # Maximum runtime in seconds (0 for unlimited)
   seed: null  # Set for reproducibility
 
 # =============================================================================

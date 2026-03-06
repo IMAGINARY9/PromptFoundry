@@ -172,9 +172,7 @@ class OpenAICompatClient(BaseLLMClient):
         Returns:
             List of completions.
         """
-        tasks = [
-            self.complete(prompt, system_prompt, **kwargs) for prompt in prompts
-        ]
+        tasks = [self.complete(prompt, system_prompt, **kwargs) for prompt in prompts]
         return await asyncio.gather(*tasks)
 
     async def health_check(self) -> bool:

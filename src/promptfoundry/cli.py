@@ -28,11 +28,14 @@ from rich.table import Table
 
 from promptfoundry.core import (
     Example,
+    OptimizationResult,
     Optimizer,
     OptimizerConfig,
-    OptimizationResult,
     Prompt,
+    RuntimeConfig,
     Task,
+    get_available_profiles,
+    get_profile_description,
 )
 from promptfoundry.evaluators import ExactMatchEvaluator, FuzzyMatchEvaluator, RegexEvaluator
 from promptfoundry.llm import LLMConfig, OpenAICompatClient
@@ -49,7 +52,7 @@ console = Console()
 
 def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
     """Load a task from a YAML file.
-    
+
     Returns:
         Tuple of (Task, evaluator_type, evaluator_config).
     """
@@ -71,10 +74,10 @@ def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
         system_prompt=data.get("system_prompt"),
         metadata=data.get("metadata", {}),
     )
-    
+
     evaluator_type = data.get("evaluator", "exact_match")
     evaluator_config = data.get("evaluator_config", {})
-    
+
     return task, evaluator_type, evaluator_config
 
 
@@ -85,10 +88,12 @@ def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
         "regex": lambda: RegexEvaluator(**config),
     }
-    
+
     if evaluator_type not in evaluators:
-        raise ValueError(f"Unknown evaluator type: {evaluator_type}. Available: {list(evaluators.keys())}")
-    
+        raise ValueError(
+            f"Unknown evaluator type: {evaluator_type}. Available: {list(evaluators.keys())}"
+        )
+
     return evaluators[evaluator_type]()
 
 
@@ -114,6 +119,12 @@ def optimize(
         "-c",
         help="Path to configuration YAML file",
     ),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-P",
+        help="Runtime profile: slow-local, balanced, or throughput",
+    ),
     strategy: str | None = typer.Option(
         None,
         "--strategy",
@@ -131,10 +142,20 @@ def optimize(
         "-p",
         help="Population size override",
     ),
+    patience: int | None = typer.Option(
+        None,
+        "--patience",
+        help="Generations without improvement before early stop",
+    ),
     max_concurrency: int | None = typer.Option(
         None,
         "--max-concurrency",
         help="Maximum concurrent LLM requests override",
+    ),
+    runtime_budget: float | None = typer.Option(
+        None,
+        "--runtime-budget",
+        help="Maximum runtime in seconds (0 for unlimited)",
     ),
     output_dir: Path | None = typer.Option(
         None,
@@ -153,6 +174,7 @@ def optimize(
 
     Example:
         promptfoundry optimize --task task.yaml --seed-prompt "Classify: {input}"
+        promptfoundry optimize --task task.yaml --seed-prompt "Answer: {input}" --profile slow-local
     """
     # Load task
     try:
@@ -164,7 +186,7 @@ def optimize(
 
     config_data: dict[str, Any] = {}
 
-    # Load config
+    # Load config file if provided
     llm_config = LLMConfig()
     if config:
         try:
@@ -177,18 +199,39 @@ def optimize(
             console.print(f"[yellow]![/yellow] Failed to load config: {e}, using defaults")
             config_data = {}
 
-    optimization_settings = config_data.get("optimization", {})
+    # Build RuntimeConfig with proper precedence:
+    # 1. Start with profile (CLI or config file)
+    # 2. Apply config file values
+    # 3. Apply CLI overrides
+    effective_profile = profile or config_data.get("optimization", {}).get("profile", "balanced")
+
+    try:
+        runtime_config = RuntimeConfig.from_profile(effective_profile)
+        if verbose:
+            console.print(f"[dim]Using profile: {effective_profile}[/dim]")
+    except ValueError as e:
+        console.print(f"[yellow]![/yellow] {e}, using 'balanced' profile")
+        runtime_config = RuntimeConfig.from_profile("balanced")
+
+    # Apply config file values
+    if config_data:
+        runtime_config = RuntimeConfig.from_dict(config_data).with_overrides(
+            profile=runtime_config.profile  # Keep the profile
+        )
+
+    # Apply CLI overrides (highest priority)
+    runtime_config = runtime_config.with_overrides(
+        max_generations=max_generations,
+        population_size=population_size,
+        patience=patience,
+        max_concurrency=max_concurrency,
+        runtime_budget_seconds=runtime_budget,
+    )
+
     strategy_settings = config_data.get("strategy", {}).get("evolutionary", {})
     output_settings = config_data.get("output", {})
-
-    effective_strategy = strategy or optimization_settings.get("strategy", "evolutionary")
-    effective_max_generations = max_generations or optimization_settings.get("max_generations", 50)
-    effective_population_size = population_size or optimization_settings.get(
-        "population_size", OptimizerConfig().population_size
-    )
-    effective_patience = optimization_settings.get("patience", 10)
-    effective_max_concurrency = max_concurrency or optimization_settings.get(
-        "max_concurrency", OptimizerConfig().max_concurrency
+    effective_strategy = strategy or config_data.get("optimization", {}).get(
+        "strategy", "evolutionary"
     )
     effective_output_dir = output_dir or Path(output_settings.get("directory", "./output"))
 
@@ -196,10 +239,16 @@ def optimize(
         Panel(
             f"[bold blue]PromptFoundry[/bold blue] - Prompt Optimization\n"
             f"Task: {task.name}\n"
+            f"Profile: {runtime_config.profile.value}\n"
             f"Strategy: {effective_strategy}\n"
-            f"Generations: {effective_max_generations}\n"
-            f"Population: {effective_population_size}\n"
-            f"Max Concurrency: {effective_max_concurrency}",
+            f"Generations: {runtime_config.max_generations}\n"
+            f"Population: {runtime_config.population_size}\n"
+            f"Max Concurrency: {runtime_config.max_concurrency}"
+            + (
+                f"\nRuntime Budget: {runtime_config.runtime_budget_seconds}s"
+                if runtime_config.runtime_budget_seconds > 0
+                else ""
+            ),
             title="Starting Optimization",
         )
     )
@@ -216,32 +265,27 @@ def optimize(
     console.print(f"[green]✓[/green] Using evaluator: {evaluator_type}")
 
     strategy_config = EvolutionaryConfig(
-        population_size=effective_population_size,
-        max_generations=effective_max_generations,
-        patience=effective_patience,
-        seed=optimization_settings.get("seed"),
+        population_size=runtime_config.population_size,
+        max_generations=runtime_config.max_generations,
+        patience=runtime_config.patience,
+        seed=runtime_config.seed,
         mutation_rate=strategy_settings.get("mutation_rate", 0.3),
         crossover_rate=strategy_settings.get("crossover_rate", 0.7),
         tournament_size=strategy_settings.get("tournament_size", 3),
         elitism=strategy_settings.get("elitism", 2),
     )
     optimization_strategy = GeneticAlgorithmStrategy(strategy_config)
-    console.print(f"[green]✓[/green] Using strategy: evolutionary")
+    console.print("[green]✓[/green] Using strategy: evolutionary")
 
-    # Create optimizer config
-    optimizer_config = OptimizerConfig(
-        max_generations=effective_max_generations,
-        population_size=effective_population_size,
-        patience=effective_patience,
-        max_concurrency=effective_max_concurrency,
-    )
+    # Create optimizer config from runtime config
+    optimizer_config = OptimizerConfig.from_runtime_config(runtime_config)
 
     # Ensure output directory exists
     effective_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create seed prompt
     seed = Prompt(text=seed_prompt)
-    console.print(f"[green]✓[/green] Created seed prompt\n")
+    console.print("[green]✓[/green] Created seed prompt\n")
 
     # Progress tracking
     progress_data: dict[str, Any] = {"generation": 0, "best_fitness": 0.0, "last_time": time.time()}
@@ -249,17 +293,17 @@ def optimize(
     # Run optimization
     async def _run_optimization() -> OptimizationResult:
         llm_client = OpenAICompatClient(llm_config)
-        
+
         # Check LLM health
         with console.status("[bold green]Checking LLM connection..."):
             healthy = await llm_client.health_check()
-        
+
         if not healthy:
             console.print(f"[red]✗[/red] Cannot connect to LLM at {llm_config.base_url}")
             console.print("  Make sure your LLM server is running.")
             await llm_client.close()
             raise typer.Exit(1)
-        
+
         console.print(f"[green]✓[/green] Connected to LLM at {llm_config.base_url}\n")
 
         optimizer = Optimizer(
@@ -291,7 +335,7 @@ def optimize(
         optimizer.add_callback(_progress_callback)  # type: ignore[arg-type]
 
         console.print("[bold]Running optimization...[/bold]\n")
-        
+
         # Use rich progress bar
         with Progress(
             SpinnerColumn(),
@@ -303,13 +347,13 @@ def optimize(
         ) as progress:
             progress_task = progress.add_task(
                 "[cyan]Optimizing prompts...",
-                total=effective_max_generations,
+                total=runtime_config.max_generations,
             )
 
             # Wrap callback to update progress bar
             original_callbacks = optimizer._callbacks.copy()
             optimizer._callbacks.clear()
-            
+
             def _wrapped_callback(
                 generation: int,
                 best_fitness: float,
@@ -319,7 +363,7 @@ def optimize(
                 for cb in original_callbacks:
                     cb(generation, best_fitness, avg_fitness, best_prompt_text)
                 progress.update(progress_task, completed=generation + 1)
-            
+
             optimizer.add_callback(_wrapped_callback)  # type: ignore[arg-type]
 
             try:
@@ -350,6 +394,7 @@ def optimize(
         console.print(f"\n[red]✗[/red] Optimization failed: {e}")
         if verbose:
             import traceback
+
             console.print(traceback.format_exc())
         raise typer.Exit(1)
 
@@ -373,16 +418,17 @@ def optimize(
         "best_fitness": best_fitness,
         "generations": total_generations,
         "strategy": effective_strategy,
-        "population_size": effective_population_size,
-        "max_concurrency": effective_max_concurrency,
+        "profile": runtime_config.profile.value,
+        "population_size": runtime_config.population_size,
+        "max_concurrency": runtime_config.max_concurrency,
         "timestamp": datetime.now().isoformat(),
     }
 
     result_file = effective_output_dir / f"optimization_{datetime.now():%Y%m%d_%H%M%S}.json"
-    
+
     with result_file.open("w", encoding="utf-8") as f:
         json.dump(result_data, f, indent=2)
-    
+
     console.print(f"\n[green]✓[/green] Results saved to: {result_file}")
 
 
@@ -478,9 +524,9 @@ def report(
     seed = data.get("seed_prompt", "")
     best = data.get("best_prompt", "")
     if seed and best and seed != best:
-        console.print(f"\n[green]✓[/green] Prompt was improved from seed")
+        console.print("\n[green]✓[/green] Prompt was improved from seed")
     elif seed == best:
-        console.print(f"\n[yellow]![/yellow] Best prompt is same as seed (no improvement)")
+        console.print("\n[yellow]![/yellow] Best prompt is same as seed (no improvement)")
 
 
 @app.command()
@@ -502,7 +548,7 @@ def list_results(
         return
 
     results = list(output_dir.glob("optimization_*.json"))
-    
+
     if not results:
         console.print(f"[yellow]![/yellow] No optimization results found in {output_dir}")
         return
@@ -662,6 +708,64 @@ def list_evaluators() -> None:
     )
 
     console.print(table)
+
+
+@app.command()
+def profiles(
+    name: str | None = typer.Argument(
+        None,
+        help="Profile name to show details for",
+    ),
+) -> None:
+    """List available runtime profiles or show details for a specific profile.
+
+    Examples:
+        promptfoundry profiles              # List all profiles
+        promptfoundry profiles slow-local   # Show slow-local profile details
+    """
+    available = get_available_profiles()
+
+    if name:
+        # Show details for specific profile
+        if name not in available:
+            console.print(f"[red]✗[/red] Unknown profile: {name}")
+            console.print(f"Available profiles: {', '.join(available)}")
+            raise typer.Exit(1)
+
+        config = RuntimeConfig.from_profile(name)
+        console.print(
+            Panel(
+                f"[bold]{name}[/bold]\n\n"
+                f"[dim]{get_profile_description(name)}[/dim]\n\n"
+                f"{config.describe()}",
+                title="Runtime Profile",
+            )
+        )
+    else:
+        # List all profiles
+        table = Table(title="Available Runtime Profiles")
+        table.add_column("Profile", style="cyan")
+        table.add_column("Population", justify="right")
+        table.add_column("Generations", justify="right")
+        table.add_column("Concurrency", justify="right")
+        table.add_column("Description")
+
+        for profile_name in available:
+            config = RuntimeConfig.from_profile(profile_name)
+            desc = get_profile_description(profile_name)
+            # Truncate description
+            short_desc = desc[:50] + "..." if len(desc) > 50 else desc
+            table.add_row(
+                profile_name,
+                str(config.population_size),
+                str(config.max_generations),
+                str(config.max_concurrency),
+                short_desc,
+            )
+
+        console.print(table)
+        console.print("\n[dim]Use 'promptfoundry profiles <name>' for details[/dim]")
+        console.print("[dim]Use '--profile <name>' with optimize command[/dim]")
 
 
 def main() -> None:

@@ -5,7 +5,8 @@ This module provides an evaluator that wraps user-defined functions.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 
 class EvaluatorFunction(Protocol):
@@ -102,10 +103,7 @@ class CustomFunctionEvaluator:
             raise ValueError(
                 f"Length mismatch: {len(predictions)} predictions vs {len(expected)} expected"
             )
-        return [
-            self.evaluate(pred, exp)
-            for pred, exp in zip(predictions, expected, strict=True)
-        ]
+        return [self.evaluate(pred, exp) for pred, exp in zip(predictions, expected, strict=True)]
 
     def aggregate(self, scores: list[float]) -> float:
         """Aggregate scores into a single value.
@@ -192,9 +190,7 @@ class CompositeEvaluator:
         """
         total_score = 0.0
 
-        for (evaluator, _), weight in zip(
-            self._evaluators, self._weights, strict=True
-        ):
+        for (evaluator, _), weight in zip(self._evaluators, self._weights, strict=True):
             score = evaluator.evaluate(predicted, expected, metadata)
             total_score += score * weight
 
@@ -214,10 +210,7 @@ class CompositeEvaluator:
         Returns:
             List of weighted scores.
         """
-        return [
-            self.evaluate(pred, exp)
-            for pred, exp in zip(predictions, expected, strict=True)
-        ]
+        return [self.evaluate(pred, exp) for pred, exp in zip(predictions, expected, strict=True)]
 
     def aggregate(self, scores: list[float]) -> float:
         """Aggregate scores into a single value."""
@@ -228,9 +221,7 @@ class CompositeEvaluator:
     def get_evaluator_info(self) -> dict[str, Any]:
         """Return evaluator information."""
         components = []
-        for (evaluator, _), weight in zip(
-            self._evaluators, self._weights, strict=True
-        ):
+        for (evaluator, _), weight in zip(self._evaluators, self._weights, strict=True):
             info = evaluator.get_evaluator_info()
             info["weight"] = weight
             components.append(info)

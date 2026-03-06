@@ -87,9 +87,7 @@ class BaseEvaluator(ABC):
                 f"Length mismatch: {len(predictions)} predictions vs {len(expected)} expected"
             )
 
-        return [
-            self.evaluate(pred, exp) for pred, exp in zip(predictions, expected, strict=True)
-        ]
+        return [self.evaluate(pred, exp) for pred, exp in zip(predictions, expected, strict=True)]
 
     def aggregate(self, scores: list[float]) -> float:
         """Aggregate multiple scores into a single fitness value.

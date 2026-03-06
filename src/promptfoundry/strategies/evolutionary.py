@@ -132,9 +132,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
             # Crossover
             if random.random() < self.evo_config.crossover_rate:
-                child1_prompt, child2_prompt = self._crossover(
-                    parent1.prompt, parent2.prompt
-                )
+                child1_prompt, child2_prompt = self._crossover(parent1.prompt, parent2.prompt)
             else:
                 child1_prompt = parent1.prompt
                 child2_prompt = parent2.prompt
@@ -173,9 +171,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         Returns:
             Selected individual.
         """
-        tournament = random.sample(
-            evaluated, min(self.evo_config.tournament_size, len(evaluated))
-        )
+        tournament = random.sample(evaluated, min(self.evo_config.tournament_size, len(evaluated)))
         return max(tournament, key=lambda x: x.fitness or 0.0)
 
     def _crossover(self, parent1: Prompt, parent2: Prompt) -> tuple[Prompt, Prompt]:

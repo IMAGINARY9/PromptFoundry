@@ -183,11 +183,11 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 
 ## 5. MVP 2 Detailed Plan
 
-### Phase 2.1: Runtime Controls (Day 1-2)
-- [ ] Load optimization settings from YAML with clear CLI override precedence
-- [ ] Add runtime profile presets (`slow-local`, `balanced`, `throughput`)
-- [ ] Expose concurrency, patience, and budget controls in CLI and config
-- [ ] Write unit tests for config precedence and profile selection
+### Phase 2.1: Runtime Controls (Day 1-2) ✅
+- [x] Load optimization settings from YAML with clear CLI override precedence
+- [x] Add runtime profile presets (`slow-local`, `balanced`, `throughput`)
+- [x] Expose concurrency, patience, and budget controls in CLI and config
+- [x] Write unit tests for config precedence and profile selection
 
 ### Phase 2.2: Cheap Proxy Metrics (Day 3-5)
 - [ ] Implement output-shape / regex compliance evaluator improvements

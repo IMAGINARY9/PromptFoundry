@@ -11,7 +11,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from promptfoundry.core.history import OptimizationHistory, OptimizationResult
 from promptfoundry.core.population import Individual, Population
@@ -53,6 +53,7 @@ class OptimizerConfig:
         checkpoint_frequency: Save checkpoint every N generations.
         batch_size: Number of prompts to evaluate per outer batch.
         max_concurrency: Maximum number of concurrent LLM requests.
+        runtime_budget_seconds: Maximum runtime in seconds (0 for unlimited).
     """
 
     max_generations: int = 50
@@ -62,6 +63,27 @@ class OptimizerConfig:
     checkpoint_frequency: int = 5
     batch_size: int = 5
     max_concurrency: int = 1
+    runtime_budget_seconds: float = 0.0
+
+    @classmethod
+    def from_runtime_config(cls, runtime_config: Any) -> OptimizerConfig:
+        """Create OptimizerConfig from a RuntimeConfig.
+
+        Args:
+            runtime_config: RuntimeConfig instance.
+
+        Returns:
+            OptimizerConfig with values from RuntimeConfig.
+        """
+        return cls(
+            max_generations=runtime_config.max_generations,
+            population_size=runtime_config.population_size,
+            patience=runtime_config.patience,
+            batch_size=runtime_config.batch_size,
+            max_concurrency=runtime_config.max_concurrency,
+            checkpoint_frequency=runtime_config.checkpoint_frequency,
+            runtime_budget_seconds=runtime_config.runtime_budget_seconds,
+        )
 
 
 @dataclass
@@ -190,15 +212,11 @@ class Optimizer:
 
         # Initialize or continue population
         if self._state.current_generation == 0:
-            population = self.strategy.initialize(
-                seed_prompt, self.config.population_size
-            )
+            population = self.strategy.initialize(seed_prompt, self.config.population_size)
             self._state.best_prompt = seed_prompt
         else:
             # Would need to reconstruct population from checkpoint
-            population = self.strategy.initialize(
-                seed_prompt, self.config.population_size
-            )
+            population = self.strategy.initialize(seed_prompt, self.config.population_size)
 
         # Main optimization loop
         while not self._should_terminate():
@@ -293,6 +311,7 @@ class Optimizer:
         in‑memory cache to avoid duplicated LLM requests.  A semaphore throttles
         concurrent calls to protect slow or single‑threaded LLM backends.
         """
+
         async def _score_example(ind: Individual, example: Example) -> float:
             key = (
                 ind.prompt.text,
@@ -366,7 +385,38 @@ class Optimizer:
         if self._state.best_score >= 1.0:
             return True
 
+        # Runtime budget exceeded
+        if self.config.runtime_budget_seconds > 0:
+            elapsed = time.time() - self._state.start_time
+            if elapsed >= self.config.runtime_budget_seconds:
+                return True
+
         return False
+
+    def get_termination_reason(self) -> str:
+        """Get the reason for termination.
+
+        Returns:
+            Human-readable termination reason.
+        """
+        if self._state is None:
+            return "Not started"
+
+        if self._state.current_generation >= self.config.max_generations:
+            return "Max generations reached"
+
+        if self._state.generations_without_improvement >= self.config.patience:
+            return f"Early stopping (no improvement for {self.config.patience} generations)"
+
+        if self._state.best_score >= 1.0:
+            return "Perfect score achieved"
+
+        if self.config.runtime_budget_seconds > 0:
+            elapsed = time.time() - self._state.start_time
+            if elapsed >= self.config.runtime_budget_seconds:
+                return f"Runtime budget exceeded ({self.config.runtime_budget_seconds}s)"
+
+        return "Running"
 
     def _invoke_callbacks(
         self,
@@ -398,7 +448,9 @@ class Optimizer:
             checkpoint_dir = Path(self.config.checkpoint_dir)
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-            checkpoint_path = checkpoint_dir / f"checkpoint_gen_{self._state.current_generation}.json"
+            checkpoint_path = (
+                checkpoint_dir / f"checkpoint_gen_{self._state.current_generation}.json"
+            )
             self._history.save(checkpoint_path)
 
     async def _resume_from_checkpoint(self, path: Path) -> None:
