@@ -4,6 +4,14 @@ from promptfoundry.evaluators.accuracy import ExactMatchEvaluator, FuzzyMatchEva
 from promptfoundry.evaluators.base import BaseEvaluator
 from promptfoundry.evaluators.custom import CompositeEvaluator, CustomFunctionEvaluator
 from promptfoundry.evaluators.format import ContainsEvaluator, RegexEvaluator
+from promptfoundry.evaluators.pipeline import (
+    EvaluationStage,
+    PipelineBuilder,
+    PipelineResult,
+    StagedPipelineEvaluator,
+    StageResult,
+    create_cheap_to_expensive_pipeline,
+)
 from promptfoundry.evaluators.proxy_metrics import (
     FieldCoverageEvaluator,
     JsonParseEvaluator,
@@ -32,4 +40,11 @@ __all__ = [
     "KeywordPresenceEvaluator",
     "LengthConstraintEvaluator",
     "OutputShapeEvaluator",
+    # Staged pipeline (MVP 2)
+    "EvaluationStage",
+    "PipelineBuilder",
+    "PipelineResult",
+    "StagedPipelineEvaluator",
+    "StageResult",
+    "create_cheap_to_expensive_pipeline",
 ]

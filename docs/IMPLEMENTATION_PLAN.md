@@ -196,11 +196,11 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Implement latency/token penalty metric (as length constraint)
 - [x] Document when to use cheap metrics vs exact metrics
 
-### Phase 2.3: Staged Evaluation Pipeline (Day 6-8)
-- [ ] Add multi-stage evaluator pipeline support
-- [ ] Support cheap pre-filtering before expensive scorers
-- [ ] Support partial-credit aggregation
-- [ ] Write tests for stage ordering and fallback behavior
+### Phase 2.3: Staged Evaluation Pipeline ✅
+- [x] Add multi-stage evaluator pipeline support
+- [x] Support cheap pre-filtering before expensive scorers
+- [x] Support partial-credit aggregation
+- [x] Write tests for stage ordering and fallback behavior (53 tests)
 
 ### Phase 2.4: Reporting & Diagnostics (Day 9-10)
 - [ ] Report no-signal runs explicitly
