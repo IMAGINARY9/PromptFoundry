@@ -51,6 +51,9 @@ class OptimizationResult:
         elapsed_time: Total optimization time in seconds.
         convergence_generation: Generation where best was found.
         history: Complete optimization history.
+        termination_reason: Why the optimization stopped.
+        total_llm_calls: Total LLM API calls made.
+        total_cache_hits: Total evaluations served from cache.
     """
 
     best_prompt: Prompt
@@ -60,6 +63,9 @@ class OptimizationResult:
     elapsed_time: float
     convergence_generation: int
     history: OptimizationHistory
+    termination_reason: str = "unknown"
+    total_llm_calls: int = 0
+    total_cache_hits: int = 0
 
     def __str__(self) -> str:
         """Return a summary of the result."""
@@ -69,7 +75,8 @@ class OptimizationResult:
             f"  generations={self.total_generations},\n"
             f"  evaluations={self.total_evaluations},\n"
             f"  converged_at=gen_{self.convergence_generation},\n"
-            f"  elapsed={self.elapsed_time:.2f}s\n"
+            f"  elapsed={self.elapsed_time:.2f}s,\n"
+            f"  termination={self.termination_reason}\n"
             f")"
         )
 
@@ -82,6 +89,9 @@ class OptimizationResult:
             "total_evaluations": self.total_evaluations,
             "elapsed_time": self.elapsed_time,
             "convergence_generation": self.convergence_generation,
+            "termination_reason": self.termination_reason,
+            "total_llm_calls": self.total_llm_calls,
+            "total_cache_hits": self.total_cache_hits,
         }
 
 
@@ -105,11 +115,16 @@ class OptimizationHistory:
     start_time: str = field(default_factory=lambda: datetime.now().isoformat())
     task_name: str = ""
 
-    def add_generation(self, population: Population) -> None:
+    def add_generation(
+        self,
+        population: Population,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Record a generation's state.
 
         Args:
             population: The population to record.
+            metadata: Optional additional metadata (timing, cache stats, etc.).
         """
         best = population.best
         avg = population.average_fitness
@@ -123,6 +138,7 @@ class OptimizationHistory:
             average_fitness=avg,
             best_prompt=best.prompt.text,
             population_size=len(population),
+            metadata=metadata or {},
         )
         self.generations.append(record)
 

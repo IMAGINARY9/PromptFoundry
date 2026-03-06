@@ -27,13 +27,16 @@ from rich.progress import (
 from rich.table import Table
 
 from promptfoundry.core import (
+    BenchmarkSummary,
     Example,
     OptimizationResult,
     Optimizer,
     OptimizerConfig,
     Prompt,
+    RunDiagnostics,
     RuntimeConfig,
     Task,
+    format_diagnostics_report,
     get_available_profiles,
     get_profile_description,
 )
@@ -443,7 +446,30 @@ def optimize(
         "population_size": runtime_config.population_size,
         "max_concurrency": runtime_config.max_concurrency,
         "timestamp": datetime.now().isoformat(),
+        # Diagnostics data (MVP 2)
+        "elapsed_time": result.elapsed_time,
+        "termination_reason": result.termination_reason,
+        "total_evaluations": result.total_evaluations,
+        "total_llm_calls": result.total_llm_calls,
+        "total_cache_hits": result.total_cache_hits,
+        "convergence_generation": result.convergence_generation,
     }
+
+    # Save history with per-generation data if available
+    if result.history and result.history.generations:
+        result_data["history"] = {
+            "generations": [
+                {
+                    "generation": g.generation,
+                    "best_fitness": g.best_fitness,
+                    "average_fitness": g.average_fitness,
+                    "population_size": g.population_size,
+                    "timestamp": g.timestamp,
+                    "metadata": g.metadata,
+                }
+                for g in result.history.generations
+            ],
+        }
 
     result_file = effective_output_dir / f"optimization_{datetime.now():%Y%m%d_%H%M%S}.json"
 
@@ -596,6 +622,151 @@ def list_results(
             table.add_row(result_file.name, "[red]Error[/red]", "-", "-", "-")
 
     console.print(table)
+
+
+@app.command()
+def diagnose(
+    result_file: Path = typer.Argument(
+        ...,
+        help="Path to optimization result JSON file",
+        exists=True,
+        readable=True,
+    ),
+) -> None:
+    """Show detailed diagnostics for an optimization run.
+
+    Analyzes the optimization results and reports:
+    - Improvement metrics and status (success/no-signal/partial)
+    - Termination reason
+    - Per-generation timing and latency
+    - Cache statistics
+    - Warnings about potential issues
+
+    Example:
+        promptfoundry diagnose ./output/optimization_20240101_120000.json
+    """
+    try:
+        with result_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]✗[/red] Invalid JSON file: {e}")
+        raise typer.Exit(1)
+
+    # Analyze the run
+    diag = RunDiagnostics.analyze(
+        history_data=data,
+        termination_reason=data.get("termination_reason", "unknown"),
+        elapsed_time=data.get("elapsed_time", 0.0),
+        total_llm_calls=data.get("total_llm_calls", 0),
+        total_cache_hits=data.get("total_cache_hits", 0),
+    )
+
+    # Format and print the report
+    report = format_diagnostics_report(diag)
+    console.print(report)
+
+    # Summary panel with color-coded status
+    status_color = {
+        "success": "green",
+        "no_signal": "yellow",
+        "partial": "yellow",
+        "failed": "red",
+    }.get(diag.status.value, "white")
+
+    console.print(f"\n[{status_color}]Status: {diag.status.value.upper()}[/{status_color}]")
+
+    # Show warnings prominently
+    if diag.warnings:
+        console.print("\n[bold yellow]Warnings:[/bold yellow]")
+        for warning in diag.warnings:
+            console.print(f"  [yellow]⚠[/yellow] {warning}")
+
+
+@app.command()
+def benchmark_summary(
+    output_dir: Path = typer.Option(
+        Path("./output"),
+        "--output",
+        "-o",
+        help="Output directory containing results",
+    ),
+) -> None:
+    """Generate a summary report across multiple optimization runs.
+
+    Aggregates statistics from all optimization results in the directory.
+
+    Example:
+        promptfoundry benchmark-summary --output ./output
+    """
+    if not output_dir.exists():
+        console.print(f"[yellow]![/yellow] Directory does not exist: {output_dir}")
+        raise typer.Exit(1)
+
+    results = list(output_dir.glob("optimization_*.json"))
+    if not results:
+        console.print(f"[yellow]![/yellow] No optimization results found in {output_dir}")
+        raise typer.Exit(1)
+
+    summary = BenchmarkSummary()
+
+    for result_file in results:
+        try:
+            with result_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            diag = RunDiagnostics.analyze(
+                history_data=data,
+                termination_reason=data.get("termination_reason", "unknown"),
+                elapsed_time=data.get("elapsed_time", 0.0),
+                total_llm_calls=data.get("total_llm_calls", 0),
+                total_cache_hits=data.get("total_cache_hits", 0),
+            )
+            summary.add_run(diag)
+        except Exception as e:
+            console.print(f"[yellow]![/yellow] Failed to parse {result_file.name}: {e}")
+
+    if summary.total_runs == 0:
+        console.print("[yellow]![/yellow] No valid results to summarize")
+        raise typer.Exit(1)
+
+    # Print summary
+    console.print(Panel("[bold blue]Benchmark Summary[/bold blue]", expand=False))
+
+    # Overview table
+    overview = Table(title="Overview")
+    overview.add_column("Metric", style="cyan")
+    overview.add_column("Value", justify="right")
+
+    overview.add_row("Total Runs", str(summary.total_runs))
+    overview.add_row("Successful", f"[green]{summary.successful_runs}[/green]")
+    overview.add_row("No Signal", f"[yellow]{summary.no_signal_runs}[/yellow]")
+    overview.add_row("Avg Improvement", f"{summary.average_improvement:.4f}")
+    overview.add_row("Avg Runtime", f"{summary.average_runtime:.2f}s")
+
+    console.print(overview)
+
+    # Per-task breakdown
+    task_stats = summary.task_stats()
+    if task_stats:
+        task_table = Table(title="Per-Task Statistics")
+        task_table.add_column("Task", style="cyan")
+        task_table.add_column("Runs", justify="right")
+        task_table.add_column("Success Rate", justify="right")
+        task_table.add_column("Avg Improve", justify="right")
+        task_table.add_column("Max Improve", justify="right")
+        task_table.add_column("Avg Time", justify="right")
+
+        for task, stats in task_stats.items():
+            task_table.add_row(
+                task,
+                f"{stats['num_runs']:.0f}",
+                f"{stats['success_rate']*100:.0f}%",
+                f"{stats['avg_improvement']:.4f}",
+                f"{stats['max_improvement']:.4f}",
+                f"{stats['avg_runtime_s']:.1f}s",
+            )
+
+        console.print(task_table)
 
 
 @app.command()

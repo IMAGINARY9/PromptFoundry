@@ -98,6 +98,9 @@ class OptimizationState:
     best_prompt: Prompt | None = None
     generations_without_improvement: int = 0
     total_evaluations: int = 0
+    total_llm_calls: int = 0
+    total_cache_hits: int = 0
+    termination_reason: str = "unknown"
     start_time: float = field(default_factory=time.time)
 
     def update_best(self, prompt: Prompt, score: float) -> bool:
@@ -220,13 +223,30 @@ class Optimizer:
 
         # Main optimization loop
         while not self._should_terminate():
+            # Track generation timing
+            gen_start_time = time.time()
+            cache_size_before = len(self._score_cache)
+
             # Evaluate current population
             try:
                 fitness_scores = await self._evaluate_population(population, task)
             except asyncio.CancelledError:
                 # optimization was cancelled (e.g. Ctrl-C); stop early
+                self._state.termination_reason = "interrupted"
                 break
+            
+            # Calculate generation metrics
+            gen_elapsed_ms = (time.time() - gen_start_time) * 1000
+            cache_size_after = len(self._score_cache)
+            num_examples = len(task.examples)
+            total_evaluations_this_gen = len(population) * num_examples
+            cache_hits_this_gen = total_evaluations_this_gen - (cache_size_after - cache_size_before)
+            llm_calls_this_gen = cache_size_after - cache_size_before
+            
+            # Update state totals
             self._state.total_evaluations += len(population)
+            self._state.total_llm_calls += llm_calls_this_gen
+            self._state.total_cache_hits += cache_hits_this_gen
 
             # Find generation best
             gen_best_idx = max(range(len(fitness_scores)), key=lambda i: fitness_scores[i])
@@ -237,7 +257,7 @@ class Optimizer:
             # Update state
             self._state.update_best(gen_best.prompt, gen_best_score)
 
-            # Record history
+            # Record history with timing metadata
             evaluated_pop = Population(
                 individuals=[
                     ind.with_fitness(score)
@@ -245,7 +265,14 @@ class Optimizer:
                 ],
                 generation=self._state.current_generation,
             )
-            self._history.add_generation(evaluated_pop)
+            self._history.add_generation(
+                evaluated_pop,
+                metadata={
+                    "evaluation_time_ms": gen_elapsed_ms,
+                    "llm_calls": llm_calls_this_gen,
+                    "cache_hits": cache_hits_this_gen,
+                },
+            )
 
             # Invoke callbacks
             self._invoke_callbacks(
@@ -273,6 +300,9 @@ class Optimizer:
             elapsed_time=elapsed,
             convergence_generation=self._find_convergence_generation(),
             history=self._history,
+            termination_reason=self._state.termination_reason,
+            total_llm_calls=self._state.total_llm_calls,
+            total_cache_hits=self._state.total_cache_hits,
         )
 
     async def _evaluate_population(
@@ -375,20 +405,24 @@ class Optimizer:
 
         # Max generations reached
         if self._state.current_generation >= self.config.max_generations:
+            self._state.termination_reason = "max_generations"
             return True
 
         # Early stopping due to no improvement
         if self._state.generations_without_improvement >= self.config.patience:
+            self._state.termination_reason = "patience_exhausted"
             return True
 
         # Perfect score achieved
         if self._state.best_score >= 1.0:
+            self._state.termination_reason = "max_generations"  # Treated as success
             return True
 
         # Runtime budget exceeded
         if self.config.runtime_budget_seconds > 0:
             elapsed = time.time() - self._state.start_time
             if elapsed >= self.config.runtime_budget_seconds:
+                self._state.termination_reason = "runtime_budget"
                 return True
 
         return False

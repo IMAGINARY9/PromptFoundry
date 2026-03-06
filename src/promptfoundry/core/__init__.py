@@ -6,6 +6,15 @@ from promptfoundry.core.config import (
     get_available_profiles,
     get_profile_description,
 )
+from promptfoundry.core.diagnostics import (
+    BenchmarkSummary,
+    GenerationMetrics,
+    RunDiagnostics,
+    RunStatus,
+    TerminationReason,
+    format_benchmark_summary,
+    format_diagnostics_report,
+)
 from promptfoundry.core.history import OptimizationHistory, OptimizationResult
 from promptfoundry.core.optimizer import Optimizer, OptimizerConfig
 from promptfoundry.core.population import Individual, Population
@@ -18,8 +27,10 @@ from promptfoundry.core.protocols import (
 from promptfoundry.core.task import Example, Task
 
 __all__ = [
+    "BenchmarkSummary",
     "Evaluator",
     "Example",
+    "GenerationMetrics",
     "Individual",
     "LLMClient",
     "OptimizationHistory",
@@ -30,9 +41,14 @@ __all__ = [
     "Population",
     "Prompt",
     "PromptTemplate",
+    "RunDiagnostics",
+    "RunStatus",
     "RuntimeConfig",
     "RuntimeProfile",
     "Task",
+    "TerminationReason",
+    "format_benchmark_summary",
+    "format_diagnostics_report",
     "get_available_profiles",
     "get_profile_description",
 ]

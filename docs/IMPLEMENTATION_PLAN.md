@@ -202,11 +202,11 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Support partial-credit aggregation
 - [x] Write tests for stage ordering and fallback behavior (53 tests)
 
-### Phase 2.4: Reporting & Diagnostics (Day 9-10)
-- [ ] Report no-signal runs explicitly
-- [ ] Persist enough detail to inspect interrupted runs
-- [ ] Show latency/cost per generation in reports
-- [ ] Add benchmark summary output for task/operator comparison
+### Phase 2.4: Reporting & Diagnostics ✅
+- [x] Report no-signal runs explicitly (RunStatus.NO_SIGNAL)
+- [x] Persist enough detail to inspect interrupted runs (termination_reason, per-gen metadata)
+- [x] Show latency/cost per generation in reports (evaluation_time_ms, llm_calls, cache_hits)
+- [x] Add benchmark summary output for task/operator comparison (28 tests)
 
 ### Phase 2.5: Benchmark Gate (Day 11-14)
 - [ ] Define benchmark suite for extraction, formatting, and constrained reasoning
