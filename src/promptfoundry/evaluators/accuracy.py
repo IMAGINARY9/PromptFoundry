@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from promptfoundry.evaluators.base import BaseEvaluator
+from promptfoundry.evaluators.normalization import normalize_for_exact_match
 
 
 class ExactMatchEvaluator(BaseEvaluator):
@@ -16,6 +17,16 @@ class ExactMatchEvaluator(BaseEvaluator):
 
     Returns 1.0 if predicted equals expected, 0.0 otherwise.
     """
+
+    def __init__(
+        self,
+        case_sensitive: bool = False,
+        strip_whitespace: bool = True,
+        normalize_output: bool = True,
+    ) -> None:
+        """Initialize exact-match evaluation behavior."""
+        super().__init__(case_sensitive, strip_whitespace)
+        self.normalize_output = normalize_output
 
     def evaluate(
         self,
@@ -35,7 +46,21 @@ class ExactMatchEvaluator(BaseEvaluator):
         """
         pred = self._preprocess(predicted)
         exp = self._preprocess(expected)
+        if self.normalize_output and pred != exp:
+            pred = self._preprocess(
+                normalize_for_exact_match(
+                    predicted,
+                    expected,
+                    case_sensitive=self.case_sensitive,
+                )
+            )
         return 1.0 if pred == exp else 0.0
+
+    def get_evaluator_info(self) -> dict[str, Any]:
+        """Return evaluator metadata including normalization behavior."""
+        info = super().get_evaluator_info()
+        info["normalize_output"] = self.normalize_output
+        return info
 
 
 class FuzzyMatchEvaluator(BaseEvaluator):

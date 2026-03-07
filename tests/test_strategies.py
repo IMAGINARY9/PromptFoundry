@@ -137,6 +137,111 @@ class TestGeneticAlgorithmStrategy:
         assert mutated.text != prompt.text
         assert "{input}" in mutated.text
 
+    def test_mutation_operator_catalog_uses_semantic_transforms(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Mutation operators should favor semantic prompt changes over word shuffling."""
+        names = {operator.name for operator in strategy._get_mutation_operators()}
+
+        assert "promote_structured_layout" in names
+        assert "add_answer_only_directive" in names
+        assert "swap_words" not in names
+
+    def test_operator_feedback_tracks_attempts_and_wins(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Successful mutations should be reflected in aggregate operator stats."""
+        population = Population(
+            individuals=[
+                Individual(
+                    prompt=Prompt(
+                        text="Mutated prompt",
+                        metadata={
+                            "mutation_operator": "add_answer_only_directive",
+                            "parent_baseline_fitness": 0.2,
+                        },
+                    ),
+                    generation=1,
+                ),
+                Individual(prompt=Prompt(text="Unchanged"), generation=1),
+            ],
+            generation=1,
+        )
+
+        strategy.record_generation_feedback(population, [0.7, 0.3])
+        stats = strategy.get_operator_stats()["add_answer_only_directive"]
+
+        assert stats["attempts"] == 1.0
+        assert stats["wins"] == 1.0
+        assert stats["avg_delta"] == pytest.approx(0.5)
+
+    def test_operator_feedback_updates_adaptive_weights(
+        self, seed_prompt: Prompt
+    ) -> None:
+        """Adaptive weighting should reward operators that improve fitness."""
+        strategy = GeneticAlgorithmStrategy(
+            EvolutionaryConfig(
+                population_size=4,
+                mutation_rate=1.0,
+                crossover_rate=0.0,
+                tournament_size=2,
+                elitism=1,
+                seed=42,
+                adaptive_mutation_weights=True,
+            )
+        )
+
+        mutated = Prompt(
+            text="Improved prompt",
+            metadata={
+                "mutation_operator": "add_answer_only_directive",
+                "parent_baseline_fitness": 0.1,
+            },
+        )
+        population = Population(
+            individuals=[
+                Individual(prompt=seed_prompt, generation=1),
+                Individual(prompt=mutated, generation=1),
+            ],
+            generation=1,
+        )
+
+        before = strategy.get_operator_stats()["add_answer_only_directive"]["current_weight"]
+        strategy.record_generation_feedback(population, [0.1, 0.9])
+        after = strategy.get_operator_stats()["add_answer_only_directive"]["current_weight"]
+
+        assert after > before
+
+    def test_structured_layout_mutation_preserves_placeholder(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Structured mutations should preserve the input placeholder and add output guidance."""
+        mutated = strategy._mutate_promote_structured_layout("Answer the question: {input}")
+
+        assert "{input}" in mutated
+        assert "Return only the final answer." in mutated or "Answer with only the final answer." in mutated
+        assert "Input:" in mutated or "Question:" in mutated or "Task Input:" in mutated
+        assert ": ." not in mutated
+
+    def test_placeholder_is_preserved_during_mutation(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Mutations should not accidentally drop the input placeholder."""
+        prompt = Prompt(text="Classify sentiment: {input}. Return one label.")
+
+        for _ in range(20):
+            mutated = strategy._mutate_prompt(prompt)
+            assert "{input}" in mutated.text
+
+    def test_numeric_mutation_adds_digits_only_guidance(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Arithmetic prompts should receive numeric-output guidance."""
+        mutated = strategy._mutate_add_numeric_constraint("Answer the question: What is 7 minus 2?")
+
+        assert mutated != "Answer the question: What is 7 minus 2?"
+        assert "number" in mutated.lower() or "digits only" in mutated.lower() or "numeric" in mutated.lower()
+
     def test_initialize_generates_unique_variants_for_short_seed(
         self, strategy: GeneticAlgorithmStrategy
     ) -> None:
@@ -160,6 +265,18 @@ class TestGeneticAlgorithmStrategy:
         # Children should be different from parents
         parent_texts = {parent1.text, parent2.text}
         assert child1.text not in parent_texts or child2.text not in parent_texts
+
+    def test_crossover_preserves_placeholder_when_parents_have_it(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Crossover should retain the input placeholder for prompt templates."""
+        parent1 = Prompt(text="Classify sentiment: {input}. Return one label.")
+        parent2 = Prompt(text="Analyze review: {input}. Respond with only the final answer.")
+
+        child1, child2 = strategy._crossover(parent1, parent2)
+
+        assert "{input}" in child1.text
+        assert "{input}" in child2.text
 
     def test_tournament_selection(
         self, strategy: GeneticAlgorithmStrategy

@@ -2,7 +2,7 @@
 
 > **Version:** 2.0.0  
 > **Status:** MVP 2 Complete  
-> **Last Updated:** 2026-03-06  
+> **Last Updated:** 2026-03-07  
 > **Authoritative Source:** This document is the single source of truth for development roadmap.
 
 ---
@@ -65,6 +65,10 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - ✅ Staged evaluation pipeline: cheap filter -> richer scorer
 - ✅ Better reporting for cancellations, failures, and no-signal runs
 - ✅ Benchmark harness for quality, latency, and cost per generation
+- ✅ Exact-match normalization for short label and numeric answers
+- ✅ Adaptive mutation telemetry and operator reweighting
+- ✅ Resumable checkpoints with population/cache restoration
+- ✅ Adaptive plateau stopping for stalled runs
 
 ### MVP 3: Evolutionary Quality
 **Goal:** Make one search method consistently competitive before broadening the strategy set
@@ -78,6 +82,9 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 
 **Deliverables:**
 - Richer mutation operators (task-aware constraints, format directives, example-aware edits)
+- Semantic mutation operator library replacing blind word-order mutations
+- Output-mode aware directives for exact-match, numeric, and label-only tasks
+- Structured prompt layouts (`Input:` / `Question:` / `Output:`) to reduce malformed variants
 - Diversity controls and duplicate suppression
 - Adaptive mutation schedules
 - Ablation utilities for operator quality
@@ -214,7 +221,7 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Add BenchmarkGate, BenchmarkTask, BenchmarkThreshold, GateResult classes
 - [x] Add `gate-check` CLI command for quality validation
 - [x] Write tests for benchmark gate functionality (32 tests)
-- [ ] Freeze MVP 2 only when the evolutionary baseline clears benchmark gates
+- [x] Freeze MVP 2 after validation runs confirm the evolutionary baseline improves representative classification/format tasks with the finalized runtime controls
 
 ---
 

@@ -59,6 +59,27 @@ class TestExactMatchEvaluator:
         agg = evaluator.aggregate([1.0, 0.0, 1.0, 0.0])
         assert agg == 0.5
 
+    def test_exact_match_normalizes_short_label_answers(self) -> None:
+        """Verbose completions should normalize down to the expected label."""
+        evaluator = ExactMatchEvaluator()
+        score = evaluator.evaluate(
+            "Based on the review, the sentiment is positive.",
+            "positive",
+        )
+        assert score == 1.0
+
+    def test_exact_match_normalizes_numeric_answers(self) -> None:
+        """Numeric answers should be extracted from short explanatory completions."""
+        evaluator = ExactMatchEvaluator()
+        score = evaluator.evaluate("The final answer is 42.", "42")
+        assert score == 1.0
+
+    def test_exact_match_can_disable_normalization(self) -> None:
+        """Normalization should remain configurable for strict comparisons."""
+        evaluator = ExactMatchEvaluator(normalize_output=False)
+        score = evaluator.evaluate("The final answer is 42.", "42")
+        assert score == 0.0
+
 
 class TestFuzzyMatchEvaluator:
     """Tests for FuzzyMatchEvaluator."""

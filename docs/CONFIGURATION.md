@@ -1,8 +1,8 @@
 # PromptFoundry — Configuration Reference
 
-> **Version:** 1.0.0  
+> **Version:** 1.1.0  
 > **Status:** Active  
-> **Last Updated:** 2026-03-06  
+> **Last Updated:** 2026-03-07  
 > **Authoritative Source:** This document is the single source of truth for configuration options.
 
 ---
@@ -42,6 +42,18 @@ optimization:
   
   # Early stopping: generations without improvement before stopping
   patience: 10
+
+  # Maximum parallel LLM calls
+  max_concurrency: 1
+
+  # Runtime cap in seconds (0 disables budget stop)
+  runtime_budget: 0
+
+  # Adaptive plateau stopping for stagnant runs
+  adaptive_early_stopping: true
+  plateau_window: 3
+  min_progress_delta: 0.01
+  budget_buffer_ratio: 0.85
   
   # Random seed for reproducibility (null for random)
   seed: null
@@ -62,6 +74,11 @@ strategy:
     
     # Number of top individuals to preserve unchanged
     elitism: 2
+
+    # Reweight mutation operators from observed fitness gains
+    adaptive_mutation_weights: true
+    min_operator_weight: 0.4
+    weight_learning_rate: 0.8
     
     # Mutation operators to use
     mutation_operators:
@@ -135,6 +152,9 @@ evaluation:
   
   # Strip whitespace before comparison
   strip_whitespace: true
+
+  # For exact_match: normalize concise final answers out of verbose completions
+  normalize_output: true
   
   # For fuzzy_match: similarity threshold (0.0-1.0)
   similarity_threshold: 0.8
@@ -173,6 +193,12 @@ logging:
 output:
   # Directory for output files
   directory: ./output
+
+  # Optional checkpoint directory for resumable optimization runs
+  checkpoint_dir: null
+
+  # Save a checkpoint every N completed generations
+  checkpoint_frequency: 5
   
   # Save optimization history
   save_history: true

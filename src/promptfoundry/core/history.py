@@ -66,6 +66,8 @@ class OptimizationResult:
     termination_reason: str = "unknown"
     total_llm_calls: int = 0
     total_cache_hits: int = 0
+    total_example_evaluations: int = 0
+    operator_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     # record each evaluation interaction for post‑mortem
     interactions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -98,6 +100,8 @@ class OptimizationResult:
             "termination_reason": self.termination_reason,
             "total_llm_calls": self.total_llm_calls,
             "total_cache_hits": self.total_cache_hits,
+            "total_example_evaluations": self.total_example_evaluations,
+            "operator_stats": self.operator_stats,
             "seed_fitness": seed_fitness,
             "history": self.history.to_dict(),
             "interactions": self.interactions,
@@ -216,19 +220,8 @@ class OptimizationHistory:
         }
 
     @classmethod
-    def load(cls, path: str | Path) -> OptimizationHistory:
-        """Load history from a JSON file.
-
-        Args:
-            path: Path to the history file.
-
-        Returns:
-            Loaded OptimizationHistory instance.
-        """
-        path = Path(path)
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-
+    def from_dict(cls, data: dict[str, Any]) -> OptimizationHistory:
+        """Reconstruct history from a dictionary payload."""
         history = cls(
             task_name=data.get("task_name", ""),
             seed_prompt=data.get("seed_prompt", ""),
@@ -250,3 +243,19 @@ class OptimizationHistory:
             )
 
         return history
+
+    @classmethod
+    def load(cls, path: str | Path) -> OptimizationHistory:
+        """Load history from a JSON file.
+
+        Args:
+            path: Path to the history file.
+
+        Returns:
+            Loaded OptimizationHistory instance.
+        """
+        path = Path(path)
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        return cls.from_dict(data)

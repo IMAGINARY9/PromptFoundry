@@ -182,6 +182,8 @@ class TestOptimizer:
         assert data["seed_fitness"] == pytest.approx(
             result.history.generations[0].best_fitness
         )
+        assert data["total_example_evaluations"] == len(task.examples) * result.total_evaluations
+        assert "operator_stats" in data
 
     @pytest.mark.asyncio
     async def test_result_to_dict_is_json_serializable(
@@ -256,6 +258,82 @@ class TestOptimizer:
 
         # Should stop early due to perfect score
         assert result.total_generations < 100
+        assert result.termination_reason == "perfect_score"
+
+    @pytest.mark.asyncio
+    async def test_optimize_adaptive_plateau_stopping(
+        self, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Adaptive stopping should end stagnant runs before max generations."""
+        optimizer = Optimizer(
+            strategy=MockStrategy(),
+            evaluator=MockEvaluator(fixed_score=0.5),
+            llm_client=MockLLMClient(),
+            config=OptimizerConfig(
+                max_generations=10,
+                population_size=2,
+                patience=10,
+                plateau_window=2,
+                min_progress_delta=0.0,
+                adaptive_early_stopping=True,
+            ),
+        )
+
+        result = await optimizer.optimize(seed_prompt, task)
+
+        assert result.total_generations < 10
+        assert result.termination_reason == "adaptive_plateau"
+
+    @pytest.mark.asyncio
+    async def test_resume_from_checkpoint_restores_population_and_cache(
+        self, seed_prompt: Prompt, task: Task, tmp_path: Path
+    ) -> None:
+        """Resume should restore checkpointed population and avoid duplicate LLM calls."""
+        checkpoint_dir = tmp_path / "checkpoints"
+        initial_llm = MockLLMClient()
+        initial_optimizer = Optimizer(
+            strategy=MockStrategy(),
+            evaluator=MockEvaluator(fixed_score=0.8),
+            llm_client=initial_llm,
+            config=OptimizerConfig(
+                max_generations=1,
+                population_size=2,
+                patience=5,
+                checkpoint_dir=str(checkpoint_dir),
+                checkpoint_frequency=1,
+            ),
+        )
+
+        initial_result = await initial_optimizer.optimize(seed_prompt, task)
+        checkpoint_path = checkpoint_dir / "checkpoint_gen_1.json"
+
+        assert checkpoint_path.exists()
+        assert initial_result.total_llm_calls == 2
+
+        resumed_llm = MockLLMClient()
+        resumed_optimizer = Optimizer(
+            strategy=MockStrategy(),
+            evaluator=MockEvaluator(fixed_score=0.8),
+            llm_client=resumed_llm,
+            config=OptimizerConfig(
+                max_generations=2,
+                population_size=2,
+                patience=5,
+                checkpoint_dir=str(checkpoint_dir),
+                checkpoint_frequency=1,
+            ),
+        )
+
+        resumed_result = await resumed_optimizer.optimize(
+            seed_prompt,
+            task,
+            resume_from=checkpoint_path,
+        )
+
+        assert resumed_result.total_generations == 2
+        assert resumed_result.total_llm_calls == initial_result.total_llm_calls
+        assert resumed_llm.complete_count == 0
+        assert resumed_result.total_cache_hits >= initial_result.total_cache_hits + 2
 
     @pytest.mark.asyncio
     async def test_callback_invoked(

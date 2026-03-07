@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: MVP 1](https://img.shields.io/badge/Status-MVP%201%20Complete-green.svg)]()
+[![Status: MVP 2](https://img.shields.io/badge/Status-MVP%202%20Complete-green.svg)]()
 
 ---
 
@@ -20,14 +20,17 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 - 🚀 **Rate limiting**: Built-in token bucket for API compliance  
 - 📈 **Progress tracking**: Rich CLI with progress bars, per-generation timing, and cancelable runs
 - ⚡ **Caching & concurrency**: Avoids duplicate LLM requests and evaluates examples in parallel
+- 🧠 **Adaptive mutations**: Tracks operator win rates and reweights mutation operators during a run
+- ✅ **Smarter exact match**: Normalizes concise label and numeric answers out of verbose completions
+- 💾 **Resumable checkpoints**: Saves population, cache, and operator state for true resume support
 - 🛠️ **Extensible**: Protocol-based interfaces for custom components
 
 ### Current Scope
 
 - Current search method: evolutionary optimization only
 - Current strengths: format-constrained tasks, extraction, classification, and tasks with cheap proxy metrics
-- Current limitation: performance is still dominated by the LLM backend; the framework now exposes runtime controls through YAML and CLI so slow local models can be tuned explicitly
-- Planned next step: improve evaluation quality and runtime efficiency before adding more search algorithms
+- Current limitation: performance is still dominated by the LLM backend, especially on extraction-heavy tasks that need richer structural evaluators than fuzzy match alone
+- Planned next step: broaden benchmark-backed operator quality and diversity controls before adding more search algorithms
 
 ---
 

@@ -7,7 +7,9 @@ for prompt engineering, including mutation, crossover, and selection.
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass
+from typing import Any, Callable
 
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
@@ -29,6 +31,18 @@ class EvolutionaryConfig(StrategyConfig):
     crossover_rate: float = 0.7
     tournament_size: int = 3
     elitism: int = 2
+    adaptive_mutation_weights: bool = True
+    min_operator_weight: float = 0.4
+    weight_learning_rate: float = 0.8
+
+
+@dataclass(frozen=True)
+class MutationOperator:
+    """Declarative mutation operator used by the genetic algorithm."""
+
+    name: str
+    weight: float
+    transform: Callable[[str], str]
 
 
 class GeneticAlgorithmStrategy(BaseStrategy):
@@ -46,6 +60,10 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         """
         self.evo_config = config or EvolutionaryConfig()
         super().__init__(self.evo_config)
+        self._operator_base_weights: dict[str, float] = {}
+        self._operator_current_weights: dict[str, float] = {}
+        self._operator_stats: dict[str, dict[str, float]] = {}
+        self._last_generation_summary: dict[str, dict[str, float]] = {}
 
     def initialize(
         self,
@@ -65,11 +83,12 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             Initial population.
         """
         individuals: list[Individual] = []
+        self._ensure_operator_stats_initialized()
 
         # Include the original seed
         individuals.append(
             Individual(
-                prompt=seed_prompt,
+                prompt=self._copy_prompt(seed_prompt, metadata_updates={"is_seed": True}),
                 generation=0,
                 parent_ids=[],
             )
@@ -126,7 +145,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             seen_texts.add(elite.prompt.text)
             new_individuals.append(
                 Individual(
-                    prompt=elite.prompt,
+                    prompt=self._copy_prompt(elite.prompt),
                     fitness=None,  # Will be re-evaluated
                     generation=next_gen,
                     parent_ids=[elite.id],
@@ -143,14 +162,20 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             if random.random() < self.evo_config.crossover_rate:
                 child1_prompt, child2_prompt = self._crossover(parent1.prompt, parent2.prompt)
             else:
-                child1_prompt = parent1.prompt
-                child2_prompt = parent2.prompt
+                child1_prompt = self._copy_prompt(parent1.prompt)
+                child2_prompt = self._copy_prompt(parent2.prompt)
 
             # Mutation
             if random.random() < self.evo_config.mutation_rate:
-                child1_prompt = self._mutate_prompt(child1_prompt)
+                child1_prompt = self._mutate_prompt(
+                    child1_prompt,
+                    parent_baseline_fitness=max(parent1.fitness or 0.0, parent2.fitness or 0.0),
+                )
             if random.random() < self.evo_config.mutation_rate:
-                child2_prompt = self._mutate_prompt(child2_prompt)
+                child2_prompt = self._mutate_prompt(
+                    child2_prompt,
+                    parent_baseline_fitness=max(parent1.fitness or 0.0, parent2.fitness or 0.0),
+                )
 
             child1_prompt = self._ensure_unique_child(child1_prompt, seen_texts)
             child2_prompt = self._ensure_unique_child(child2_prompt, seen_texts)
@@ -175,6 +200,129 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 )
 
         return Population(individuals=new_individuals, generation=next_gen)
+
+    def record_generation_feedback(
+        self,
+        population: Population,
+        fitness_scores: list[float],
+    ) -> None:
+        """Update mutation telemetry from an evaluated generation."""
+        self._ensure_operator_stats_initialized()
+
+        seed_baseline = 0.0
+        for individual, score in zip(population.individuals, fitness_scores, strict=True):
+            if individual.prompt.metadata.get("is_seed"):
+                seed_baseline = score
+                break
+
+        generation_attempts: dict[str, int] = {}
+        generation_wins: dict[str, int] = {}
+        generation_delta: dict[str, float] = {}
+
+        for individual, score in zip(population.individuals, fitness_scores, strict=True):
+            operator_name = individual.prompt.metadata.get("mutation_operator")
+            if not operator_name:
+                continue
+
+            baseline = individual.prompt.metadata.get("parent_baseline_fitness")
+            if baseline is None and population.generation == 0:
+                baseline = seed_baseline
+            baseline = float(baseline or 0.0)
+            delta = score - baseline
+
+            stats = self._operator_stats.setdefault(
+                operator_name,
+                {
+                    "attempts": 0.0,
+                    "wins": 0.0,
+                    "total_delta": 0.0,
+                    "best_delta": 0.0,
+                },
+            )
+            stats["attempts"] += 1.0
+            stats["total_delta"] += delta
+            stats["best_delta"] = max(stats["best_delta"], delta)
+            if delta > 0.0:
+                stats["wins"] += 1.0
+
+            generation_attempts[operator_name] = generation_attempts.get(operator_name, 0) + 1
+            generation_delta[operator_name] = generation_delta.get(operator_name, 0.0) + delta
+            if delta > 0.0:
+                generation_wins[operator_name] = generation_wins.get(operator_name, 0) + 1
+
+        if self.evo_config.adaptive_mutation_weights:
+            self._recompute_operator_weights()
+
+        self._last_generation_summary = {}
+        for operator_name, attempts in generation_attempts.items():
+            wins = generation_wins.get(operator_name, 0)
+            avg_delta = generation_delta[operator_name] / attempts
+            self._last_generation_summary[operator_name] = {
+                "attempts": float(attempts),
+                "wins": float(wins),
+                "avg_delta": avg_delta,
+                "current_weight": self._operator_current_weights.get(
+                    operator_name,
+                    self._operator_base_weights.get(operator_name, 1.0),
+                ),
+            }
+
+    def get_operator_stats(self) -> dict[str, dict[str, float]]:
+        """Return aggregate operator performance metrics."""
+        self._ensure_operator_stats_initialized()
+        stats: dict[str, dict[str, float]] = {}
+        for operator in self._get_mutation_operators():
+            raw = self._operator_stats.get(operator.name, {})
+            attempts = raw.get("attempts", 0.0)
+            wins = raw.get("wins", 0.0)
+            avg_delta = raw.get("total_delta", 0.0) / attempts if attempts else 0.0
+            stats[operator.name] = {
+                "base_weight": self._operator_base_weights[operator.name],
+                "current_weight": self._operator_current_weights[operator.name],
+                "attempts": attempts,
+                "wins": wins,
+                "win_rate": wins / attempts if attempts else 0.0,
+                "avg_delta": avg_delta,
+                "best_delta": raw.get("best_delta", 0.0),
+            }
+        return stats
+
+    def get_last_generation_summary(self) -> dict[str, dict[str, float]]:
+        """Return telemetry captured for the most recent evaluated generation."""
+        return self._last_generation_summary.copy()
+
+    def get_checkpoint_state(self) -> dict[str, Any]:
+        """Serialize adaptive operator state for checkpointing."""
+        self._ensure_operator_stats_initialized()
+        return {
+            "operator_base_weights": self._operator_base_weights.copy(),
+            "operator_current_weights": self._operator_current_weights.copy(),
+            "operator_stats": {
+                name: stats.copy() for name, stats in self._operator_stats.items()
+            },
+            "last_generation_summary": {
+                name: stats.copy() for name, stats in self._last_generation_summary.items()
+            },
+        }
+
+    def load_checkpoint_state(self, state: dict[str, Any]) -> None:
+        """Restore adaptive operator state from a checkpoint payload."""
+        self._ensure_operator_stats_initialized()
+        self._operator_base_weights.update(state.get("operator_base_weights", {}))
+        self._operator_current_weights.update(state.get("operator_current_weights", {}))
+
+        for name, stats in state.get("operator_stats", {}).items():
+            self._operator_stats[name] = {
+                "attempts": float(stats.get("attempts", 0.0)),
+                "wins": float(stats.get("wins", 0.0)),
+                "total_delta": float(stats.get("total_delta", 0.0)),
+                "best_delta": float(stats.get("best_delta", 0.0)),
+            }
+
+        self._last_generation_summary = {
+            name: {key: float(value) for key, value in stats.items()}
+            for name, stats in state.get("last_generation_summary", {}).items()
+        }
 
     def _tournament_select(self, evaluated: list[Individual]) -> Individual:
         """Select an individual using tournament selection.
@@ -229,18 +377,29 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 child2_text = text1
 
         return (
-            parent1.with_text(child1_text),
-            parent2.with_text(child2_text),
+            self._copy_prompt(
+                parent1,
+                text=self._preserve_required_placeholders(parent1.text, child1_text),
+            ),
+            self._copy_prompt(
+                parent2,
+                text=self._preserve_required_placeholders(parent2.text, child2_text),
+            ),
         )
 
-    def _mutate_prompt(self, prompt: Prompt) -> Prompt:
+    def _mutate_prompt(
+        self,
+        prompt: Prompt,
+        parent_baseline_fitness: float | None = None,
+    ) -> Prompt:
         """Apply a random mutation to a prompt.
 
         Available mutations:
-        - Rephrase a sentence
-        - Add a constraint
-        - Remove a constraint
-        - Modify formatting instruction
+        - Rephrase the instruction in semantically similar ways
+        - Add output-format constraints
+        - Promote the prompt into a structured input/output layout
+        - Add task-specific label or numeric answer constraints
+        - Remove filler language
 
         Args:
             prompt: The prompt to mutate.
@@ -248,20 +407,185 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         Returns:
             Mutated prompt.
         """
-        mutations = [
-            self._mutate_rephrase,
-            self._mutate_add_constraint,
-            self._mutate_remove_word,
-            self._mutate_swap_words,
-        ]
+        operators = self._get_mutation_operators()
+        remaining = operators.copy()
 
-        random.shuffle(mutations)
-        for mutation_fn in mutations:
-            new_text = mutation_fn(prompt.text)
+        while remaining:
+            mutation = self._pick_mutation_operator(remaining)
+            remaining.remove(mutation)
+            new_text = self._normalize_prompt_text(
+                self._preserve_required_placeholders(
+                    prompt.text,
+                    mutation.transform(prompt.text),
+                )
+            )
             if new_text != prompt.text:
-                return prompt.with_text(new_text)
+                return self._copy_prompt(
+                    prompt,
+                    text=new_text,
+                    metadata_updates={
+                        "mutation_operator": mutation.name,
+                        "mutation_base_weight": mutation.weight,
+                        "parent_baseline_fitness": parent_baseline_fitness,
+                    },
+                )
 
-        return prompt.with_text(self._force_non_noop_mutation(prompt.text))
+        return self._copy_prompt(
+            prompt,
+            text=self._preserve_required_placeholders(
+                prompt.text,
+                self._force_non_noop_mutation(prompt.text),
+            ),
+            metadata_updates={
+                "mutation_operator": "forced_constraint",
+                "mutation_base_weight": 0.5,
+                "parent_baseline_fitness": parent_baseline_fitness,
+            },
+        )
+
+    def _get_mutation_operators(self) -> list[MutationOperator]:
+        """Return the current mutation operator library.
+
+        The operator set is intentionally semantic rather than syntactic-noise based.
+        """
+        operators = [
+            MutationOperator("rephrase_instruction", 1.0, self._mutate_rephrase),
+            MutationOperator("add_output_constraint", 1.5, self._mutate_add_constraint),
+            MutationOperator(
+                "add_answer_only_directive",
+                1.8,
+                self._mutate_add_answer_only_directive,
+            ),
+            MutationOperator(
+                "add_numeric_constraint",
+                1.6,
+                self._mutate_add_numeric_constraint,
+            ),
+            MutationOperator(
+                "add_label_constraint",
+                1.6,
+                self._mutate_add_label_constraint,
+            ),
+            MutationOperator(
+                "add_verification_directive",
+                1.2,
+                self._mutate_add_verification_directive,
+            ),
+            MutationOperator(
+                "promote_structured_layout",
+                1.7,
+                self._mutate_promote_structured_layout,
+            ),
+            MutationOperator("remove_filler", 0.8, self._mutate_remove_word),
+        ]
+        return operators
+
+    def _pick_mutation_operator(
+        self,
+        operators: list[MutationOperator],
+    ) -> MutationOperator:
+        """Pick a mutation operator with weighted random choice."""
+        self._ensure_operator_stats_initialized()
+        weights = [
+            self._operator_current_weights.get(operator.name, operator.weight)
+            for operator in operators
+        ]
+        return random.choices(operators, weights=weights, k=1)[0]
+
+    def _ensure_operator_stats_initialized(self) -> None:
+        """Initialize telemetry and adaptive weights for known operators."""
+        for operator in self._get_mutation_operators():
+            self._operator_base_weights.setdefault(operator.name, operator.weight)
+            self._operator_current_weights.setdefault(operator.name, operator.weight)
+            self._operator_stats.setdefault(
+                operator.name,
+                {
+                    "attempts": 0.0,
+                    "wins": 0.0,
+                    "total_delta": 0.0,
+                    "best_delta": 0.0,
+                },
+            )
+
+    def _recompute_operator_weights(self) -> None:
+        """Adjust operator weights using observed win rate and score deltas."""
+        for operator in self._get_mutation_operators():
+            stats = self._operator_stats.get(operator.name, {})
+            attempts = stats.get("attempts", 0.0)
+            wins = stats.get("wins", 0.0)
+            avg_delta = stats.get("total_delta", 0.0) / attempts if attempts else 0.0
+            win_rate = wins / attempts if attempts else 0.0
+            multiplier = 1.0 + (win_rate * self.evo_config.weight_learning_rate)
+            if avg_delta > 0.0:
+                multiplier += avg_delta * self.evo_config.weight_learning_rate
+            elif avg_delta < 0.0:
+                multiplier /= 1.0 + abs(avg_delta) * self.evo_config.weight_learning_rate
+
+            self._operator_current_weights[operator.name] = max(
+                self.evo_config.min_operator_weight,
+                self._operator_base_weights[operator.name] * multiplier,
+            )
+
+    def _copy_prompt(
+        self,
+        prompt: Prompt,
+        text: str | None = None,
+        metadata_updates: dict[str, Any] | None = None,
+    ) -> Prompt:
+        """Clone a prompt while clearing stale mutation telemetry."""
+        metadata = {
+            key: value
+            for key, value in prompt.metadata.items()
+            if key not in {"mutation_operator", "mutation_base_weight", "parent_baseline_fitness"}
+        }
+        if text is not None and text != prompt.text:
+            metadata["parent_id"] = prompt.id
+        if metadata_updates:
+            metadata.update(metadata_updates)
+        return Prompt(text=text or prompt.text, metadata=metadata)
+
+    def _normalize_prompt_text(self, text: str) -> str:
+        """Normalize whitespace while preserving deliberate line structure."""
+        lines = [" ".join(line.split()) for line in text.splitlines()]
+        compact_lines = [line for line in lines if line]
+        return "\n".join(compact_lines).strip()
+
+    def _preserve_required_placeholders(self, source_text: str, candidate_text: str) -> str:
+        """Ensure structural placeholders from the source prompt survive transformations."""
+        required_placeholders = ["{input}"]
+        updated = candidate_text
+
+        for placeholder in required_placeholders:
+            if placeholder in source_text and placeholder not in updated:
+                if "Input:" in updated or "Question:" in updated or "Task Input:" in updated:
+                    updated = updated.rstrip() + f"\n{placeholder}"
+                else:
+                    updated = updated.rstrip() + f"\nInput: {placeholder}"
+
+        return updated
+
+    def _append_first_missing_clause(self, text: str, clauses: list[str]) -> str:
+        """Append the first directive not already present in the prompt."""
+        normalized = text.lower()
+        for clause in clauses:
+            clause_text = clause.strip().lower()
+            if clause_text not in normalized:
+                return text.rstrip() + clause
+        return text
+
+    def _contains_any(self, text: str, terms: list[str]) -> bool:
+        """Return true when the text contains any of the provided terms."""
+        lowered = text.lower()
+        return any(term in lowered for term in terms)
+
+    def _extract_instruction_stem(self, text: str) -> str:
+        """Extract the task instruction from a prompt while preserving meaning."""
+        stem = text.replace("{input}", " ")
+        stem = re.sub(r"\s+", " ", stem).strip()
+        stem = re.sub(r"[:\-]\s*([.!?])", r"\1", stem)
+        stem = re.sub(r"\s+([.!?])", r"\1", stem)
+        stem = re.sub(r"[:\-\s]+$", "", stem)
+        return stem or "Complete the task below"
 
     def _create_unique_prompt(self, prompt: Prompt, seen_texts: set[str]) -> Prompt:
         """Create a prompt variant with text not already present in the population."""
@@ -292,12 +616,12 @@ class GeneticAlgorithmStrategy(BaseStrategy):
     ) -> str:
         """Append the first missing constraint to guarantee a text change."""
         constraints = [
-            " Be concise.",
-            " Respond with only the answer.",
-            " Do not explain your reasoning.",
-            " Think step by step.",
-            " Be precise and accurate.",
-            " Format your response clearly.",
+            " Respond with only the final answer.",
+            " Do not include any explanation.",
+            " Use the exact required output format.",
+            " If the answer is numeric, return only the number.",
+            " If the task is classification, return only the label.",
+            " Verify the result once before answering.",
         ]
 
         used_texts = seen_texts or set()
@@ -316,9 +640,11 @@ class GeneticAlgorithmStrategy(BaseStrategy):
     def _mutate_rephrase(self, text: str) -> str:
         """Rephrase by substituting common instruction words."""
         substitutions = {
+            "Answer the question": ["Solve the task", "Answer the prompt", "Determine the answer"],
             "Classify": ["Categorize", "Label", "Determine", "Identify"],
             "Determine": ["Figure out", "Identify", "Establish", "Ascertain"],
             "Output": ["Return", "Respond with", "Provide", "Give"],
+            "Answer": ["Respond to", "Solve", "Return the result for"],
             "the following": ["this", "the given", "the provided"],
             "Please": ["", "Kindly", ""],
             "must": ["should", "need to", "have to"],
@@ -327,9 +653,6 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         for original, replacements in substitutions.items():
             if original.lower() in text.lower():
                 replacement = random.choice(replacements)
-                # Case-preserving replacement
-                import re
-
                 pattern = re.compile(re.escape(original), re.IGNORECASE)
                 text = pattern.sub(replacement, text, count=1)
                 break
@@ -339,21 +662,97 @@ class GeneticAlgorithmStrategy(BaseStrategy):
     def _mutate_add_constraint(self, text: str) -> str:
         """Add a constraint or clarification."""
         constraints = [
-            " Be concise.",
-            " Respond with only the answer.",
-            " Do not explain your reasoning.",
-            " Think step by step.",
+            " Use the exact required format.",
+            " Keep the response to a single line.",
+            " Do not add commentary.",
+            " Preserve the meaning of the input.",
             " Be precise and accurate.",
-            " Format your response clearly.",
         ]
 
-        missing_constraints = [
-            constraint
-            for constraint in constraints
-            if constraint.strip().lower() not in text.lower()
+        return self._append_first_missing_clause(text, constraints)
+
+    def _mutate_add_answer_only_directive(self, text: str) -> str:
+        """Add a directive that suppresses verbose explanations."""
+        directives = [
+            " Respond with only the final answer.",
+            " Return only the final answer.",
+            " Output only the answer and nothing else.",
+            " Give the answer with no explanation.",
         ]
-        if missing_constraints:
-            text = text.rstrip() + random.choice(missing_constraints)
+        return self._append_first_missing_clause(text, directives)
+
+    def _mutate_add_numeric_constraint(self, text: str) -> str:
+        """Add a numeric-only response constraint for arithmetic-like prompts."""
+        numeric_triggers = [
+            "how many",
+            "minus",
+            "plus",
+            "sum",
+            "difference",
+            "count",
+            "number",
+            "calculate",
+            "math",
+            "letters",
+            "what is",
+        ]
+        if not self._contains_any(text, numeric_triggers):
+            return text
+
+        directives = [
+            " Return only the number.",
+            " If the answer is numeric, output digits only.",
+            " Provide the final numeric result only.",
+        ]
+        return self._append_first_missing_clause(text, directives)
+
+    def _mutate_add_label_constraint(self, text: str) -> str:
+        """Add a label-only response constraint for classification prompts."""
+        label_triggers = [
+            "classify",
+            "classification",
+            "sentiment",
+            "label",
+            "category",
+            "positive",
+            "negative",
+            "neutral",
+        ]
+        if not self._contains_any(text, label_triggers):
+            return text
+
+        directives = [
+            " Return exactly one label.",
+            " Answer with one label only.",
+            " Output only the classification label.",
+        ]
+        return self._append_first_missing_clause(text, directives)
+
+    def _mutate_add_verification_directive(self, text: str) -> str:
+        """Encourage answer verification without asking for visible reasoning."""
+        directives = [
+            " Verify the result silently before answering.",
+            " Double-check the final answer before responding.",
+            " Check the answer once, then return only the result.",
+        ]
+        return self._append_first_missing_clause(text, directives)
+
+    def _mutate_promote_structured_layout(self, text: str) -> str:
+        """Convert a flat prompt into a clearer instruction/input/output layout."""
+        if "{input}" not in text:
+            return text
+
+        stem = self._extract_instruction_stem(text)
+        lead = stem if stem.endswith((".", "!", "?")) else f"{stem}."
+        candidates = [
+            f"{lead}\nInput: {{input}}\nReturn only the final answer.",
+            f"{lead}\nQuestion: {{input}}\nAnswer with only the final answer.",
+            f"{lead}\nTask Input: {{input}}\nOutput: only the final answer.",
+        ]
+
+        for candidate in candidates:
+            if self._normalize_prompt_text(candidate) != self._normalize_prompt_text(text):
+                return candidate
 
         return text
 
@@ -363,20 +762,8 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
         for word in removable:
             if word in text.lower():
-                import re
-
                 pattern = re.compile(r"\b" + re.escape(word) + r"\b\s*", re.IGNORECASE)
                 text = pattern.sub("", text, count=1)
                 break
 
         return text.strip()
-
-    def _mutate_swap_words(self, text: str) -> str:
-        """Swap two adjacent words."""
-        words = text.split()
-        if len(words) > 3:
-            idx = random.randint(1, len(words) - 2)
-            words[idx], words[idx + 1] = words[idx + 1], words[idx]
-            text = " ".join(words)
-
-        return text
