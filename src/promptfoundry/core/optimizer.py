@@ -289,11 +289,11 @@ class Optimizer:
             operator_stats: dict[str, Any] = {}
             generation_operator_summary: dict[str, Any] = {}
             if hasattr(self.strategy, "record_generation_feedback"):
-                self.strategy.record_generation_feedback(evaluated_pop, fitness_scores)  # type: ignore[attr-defined]
+                self.strategy.record_generation_feedback(evaluated_pop, fitness_scores)
             if hasattr(self.strategy, "get_operator_stats"):
-                operator_stats = self.strategy.get_operator_stats()  # type: ignore[attr-defined]
+                operator_stats = self.strategy.get_operator_stats()
             if hasattr(self.strategy, "get_last_generation_summary"):
-                generation_operator_summary = self.strategy.get_last_generation_summary()  # type: ignore[attr-defined]
+                generation_operator_summary = self.strategy.get_last_generation_summary()
 
             # Find generation best
             gen_best_idx = max(range(len(fitness_scores)), key=lambda i: fitness_scores[i])
@@ -305,7 +305,7 @@ class Optimizer:
             self._state.update_best(gen_best.prompt, gen_best_score)
 
             # Record history with timing metadata
-            metadata = {
+            metadata: dict[str, Any] = {
                 "evaluation_time_ms": gen_elapsed_ms,
                 "llm_calls": llm_calls_this_gen,
                 "cache_hits": cache_hits_this_gen,
@@ -439,7 +439,10 @@ class Optimizer:
         for ind in individuals:
             tasks = []
             for ex in examples:
-                async def _task(ind=ind, ex=ex):
+                async def _task(
+                    ind: Individual = ind,
+                    ex: Example = ex,
+                ) -> float:
                     sc, prompt_text, completion, from_cache = await _score_example(ind, ex)
                     interactions.append(
                         {
@@ -651,7 +654,7 @@ class Optimizer:
 
             strategy_state = payload.get("strategy_state")
             if strategy_state and hasattr(self.strategy, "load_checkpoint_state"):
-                self.strategy.load_checkpoint_state(strategy_state)  # type: ignore[attr-defined]
+                self.strategy.load_checkpoint_state(strategy_state)
 
             population_data = payload.get("population")
             if population_data is not None:
@@ -704,7 +707,7 @@ class Optimizer:
 
         strategy_state: dict[str, Any] | None = None
         if hasattr(self.strategy, "get_checkpoint_state"):
-            strategy_state = self.strategy.get_checkpoint_state()  # type: ignore[attr-defined]
+            strategy_state = self.strategy.get_checkpoint_state()
 
         payload = {
             "history": self._history.to_dict(),

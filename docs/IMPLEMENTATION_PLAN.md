@@ -225,6 +225,66 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 
 ---
 
+## 5. MVP 3 Detailed Plan — Evolutionary Quality
+
+### Phase 3.1: Semantic Mutation Operators ✅
+- [x] Implement TaskType enum for task classification (classification, extraction, reasoning, numeric, QA)
+- [x] Implement OutputMode enum for output format awareness (exact, numeric, structured, freeform)
+- [x] Implement TaskDetector for automatic task type and output mode detection
+- [x] Create SemanticMutationLibrary with 12 task-aware mutation operators:
+  - [x] Clarity mutations (explicitness, step-by-step, constraint)
+  - [x] Output-format mutations (format reminder, quoting, anchoring)
+  - [x] Structure mutations (input/output separation, enumeration)
+  - [x] Reasoning mutations (COT, verification, examples)
+- [x] Add role-based and negative prompt mutations
+- [x] Write comprehensive tests (21 tests)
+
+### Phase 3.2: Diversity Controls ✅
+- [x] Implement DiversityMetrics dataclass (unique ratio, hamming spread, semantic spread)
+- [x] Implement duplicate detection with normalized fingerprinting
+- [x] Implement LineageNode for ancestry tracking
+- [x] Implement DiversityController with:
+  - [x] Prompt registration and deduplication
+  - [x] Diversity measurement (Jaccard-based)
+  - [x] Crowding penalty for selection pressure
+  - [x] Lineage reporting for improvement explanation
+- [x] Write comprehensive tests (17 tests)
+
+### Phase 3.3: Adaptive Mutation Schedules ✅
+- [x] Implement MutationScheduleState for tracking optimization progress
+- [x] Implement SchedulePhase enum (exploration, balanced, exploitation, converged)
+- [x] Implement MutationSchedule protocol with multiple implementations:
+  - [x] ConstantSchedule for baseline behavior
+  - [x] LinearDecaySchedule for scheduled exploration
+  - [x] AdaptiveSchedule with automatic phase detection and stall recovery
+  - [x] OperatorAdaptiveSchedule with per-operator weight adjustment
+- [x] Add schedule factory function for easy configuration
+- [x] Write comprehensive tests (21 tests)
+
+### Phase 3.4: Ablation Utilities ✅
+- [x] Implement OperatorMetrics for tracking application counts and fitness deltas
+- [x] Implement AblationResult for storing effectiveness rankings
+- [x] Implement AblationTracker for real-time operator performance tracking
+- [x] Implement AblationStudy for leave-one-out analysis
+- [x] Add report generation with formatted summaries
+- [x] Write comprehensive tests (22 tests)
+
+### Phase 3.5: Integration & Quality ✅
+- [x] Integrate MVP 3 components into GeneticAlgorithmStrategy
+- [x] Add EvolutionaryConfig options for enabling/disabling features
+- [x] Implement lazy loading to avoid circular imports
+- [x] Add diversity metrics and ablation accessors to strategy
+- [x] Fix all mypy type annotation errors (18 errors fixed)
+- [x] Ensure all tests pass (366 tests)
+
+### Phase 3.6: Validation (In Progress)
+- [ ] Run optimization on benchmark tasks with MVP 3 features
+- [ ] Compare results with MVP 2 baseline
+- [ ] Demonstrate improvement explanation via lineage reporting
+- [ ] Document operator effectiveness from ablation analysis
+
+---
+
 ## 6. Technical Decisions
 
 ### 4.1 Language & Runtime

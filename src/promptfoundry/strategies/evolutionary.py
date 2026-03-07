@@ -2,14 +2,20 @@
 
 This module implements a genetic algorithm-based optimization strategy
 for prompt engineering, including mutation, crossover, and selection.
+
+MVP 3 Enhancements:
+- Semantic mutation integration for task-aware transformations
+- Diversity controls for preventing premature convergence
+- Adaptive mutation schedules responding to optimization dynamics
+- Ablation tracking for operator effectiveness analysis
 """
 
 from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass
-from typing import Any, Callable
+from dataclasses import dataclass, field
+from typing import Any, Callable, cast
 
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
@@ -25,6 +31,15 @@ class EvolutionaryConfig(StrategyConfig):
         crossover_rate: Probability of crossover (0.0-1.0).
         tournament_size: Number of individuals in tournament selection.
         elitism: Number of top individuals to preserve unchanged.
+        adaptive_mutation_weights: Whether to adapt operator weights.
+        min_operator_weight: Minimum weight for any operator.
+        weight_learning_rate: Rate of weight adaptation.
+        use_semantic_mutations: Enable semantic mutation library (MVP 3).
+        use_diversity_control: Enable diversity tracking (MVP 3).
+        use_adaptive_schedule: Enable adaptive mutation schedule (MVP 3).
+        enable_ablation_tracking: Track operator effectiveness (MVP 3).
+        min_diversity_ratio: Minimum unique prompt ratio before diversity injection.
+        crowding_penalty: Penalty factor for similar individuals (0-1).
     """
 
     mutation_rate: float = 0.3
@@ -34,6 +49,13 @@ class EvolutionaryConfig(StrategyConfig):
     adaptive_mutation_weights: bool = True
     min_operator_weight: float = 0.4
     weight_learning_rate: float = 0.8
+    # MVP 3 options
+    use_semantic_mutations: bool = True
+    use_diversity_control: bool = True
+    use_adaptive_schedule: bool = False  # Off by default for backward compatibility
+    enable_ablation_tracking: bool = True
+    min_diversity_ratio: float = 0.7
+    crowding_penalty: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -50,6 +72,11 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
     Uses tournament selection, single-point crossover, and text mutation
     to evolve a population of prompts toward better performance.
+
+    MVP 3 Enhancements:
+    - Semantic mutation integration for task-aware transformations
+    - Diversity controls for preventing premature convergence
+    - Ablation tracking for operator effectiveness analysis
     """
 
     def __init__(self, config: EvolutionaryConfig | None = None) -> None:
@@ -64,6 +91,39 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         self._operator_current_weights: dict[str, float] = {}
         self._operator_stats: dict[str, dict[str, float]] = {}
         self._last_generation_summary: dict[str, dict[str, float]] = {}
+
+        # MVP 3: Task type detection and semantic mutations
+        self._detected_task_type: str | None = None
+        self._detected_output_mode: str | None = None
+        self._semantic_library: Any = None  # Lazy imported
+
+        # MVP 3: Diversity controller
+        self._diversity_controller: Any = None  # Lazy imported
+        self._last_diversity_metrics: dict[str, Any] = {}
+
+        # MVP 3: Ablation tracker
+        self._ablation_tracker: Any = None  # Lazy imported
+
+    def _ensure_mvp3_components(self) -> None:
+        """Lazy-load MVP 3 components to avoid circular imports."""
+        if self.evo_config.use_semantic_mutations and self._semantic_library is None:
+            from promptfoundry.strategies.semantic_mutations import (
+                get_mutation_library,
+            )
+
+            self._semantic_library = get_mutation_library()
+
+        if self.evo_config.use_diversity_control and self._diversity_controller is None:
+            from promptfoundry.strategies.diversity import DiversityController
+
+            self._diversity_controller = DiversityController(
+                min_unique_ratio=self.evo_config.min_diversity_ratio,
+            )
+
+        if self.evo_config.enable_ablation_tracking and self._ablation_tracker is None:
+            from promptfoundry.strategies.ablation import AblationTracker
+
+            self._ablation_tracker = AblationTracker()
 
     def initialize(
         self,
@@ -84,28 +144,58 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         """
         individuals: list[Individual] = []
         self._ensure_operator_stats_initialized()
+        self._ensure_mvp3_components()
+
+        # MVP 3: Detect task type from seed prompt
+        if self.evo_config.use_semantic_mutations:
+            from promptfoundry.strategies.semantic_mutations import TaskDetector
+
+            task_type = TaskDetector.detect_task_type(seed_prompt.text)
+            output_mode = TaskDetector.detect_output_mode(seed_prompt.text, task_type)
+            self._detected_task_type = task_type.value
+            self._detected_output_mode = output_mode.value
+
+        # MVP 3: Reset diversity controller
+        if self._diversity_controller:
+            self._diversity_controller.reset()
 
         # Include the original seed
-        individuals.append(
-            Individual(
-                prompt=self._copy_prompt(seed_prompt, metadata_updates={"is_seed": True}),
-                generation=0,
-                parent_ids=[],
-            )
+        seed_individual = Individual(
+            prompt=self._copy_prompt(seed_prompt, metadata_updates={"is_seed": True}),
+            generation=0,
+            parent_ids=[],
         )
+        individuals.append(seed_individual)
         seen_texts = {seed_prompt.text}
+
+        # MVP 3: Register seed with diversity controller
+        if self._diversity_controller:
+            self._diversity_controller.register_prompt(
+                prompt_id=seed_individual.id,
+                text=seed_prompt.text,
+                generation=0,
+            )
 
         # Generate variants through mutation
         for _ in range(population_size - 1):
             mutated = self._create_unique_prompt(seed_prompt, seen_texts)
             seen_texts.add(mutated.text)
-            individuals.append(
-                Individual(
-                    prompt=mutated,
+            individual = Individual(
+                prompt=mutated,
+                generation=0,
+                parent_ids=[seed_prompt.id],
+            )
+            individuals.append(individual)
+
+            # MVP 3: Register with diversity controller
+            if self._diversity_controller:
+                self._diversity_controller.register_prompt(
+                    prompt_id=individual.id,
+                    text=mutated.text,
                     generation=0,
                     parent_ids=[seed_prompt.id],
+                    mutation_operator=mutated.metadata.get("mutation_operator"),
                 )
-            )
 
         return Population(individuals=individuals, generation=0)
 
@@ -208,11 +298,15 @@ class GeneticAlgorithmStrategy(BaseStrategy):
     ) -> None:
         """Update mutation telemetry from an evaluated generation."""
         self._ensure_operator_stats_initialized()
+        self._ensure_mvp3_components()
 
         seed_baseline = 0.0
         for individual, score in zip(population.individuals, fitness_scores, strict=True):
             if individual.prompt.metadata.get("is_seed"):
                 seed_baseline = score
+                # MVP 3: Set ablation baseline
+                if self._ablation_tracker:
+                    self._ablation_tracker.set_baseline(score)
                 break
 
         generation_attempts: dict[str, int] = {}
@@ -250,8 +344,39 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             if delta > 0.0:
                 generation_wins[operator_name] = generation_wins.get(operator_name, 0) + 1
 
+            # MVP 3: Record to ablation tracker
+            if self._ablation_tracker:
+                self._ablation_tracker.record_mutation(
+                    operator_name=operator_name,
+                    parent_fitness=baseline,
+                    child_fitness=score,
+                )
+
+            # MVP 3: Update diversity controller with fitness
+            if self._diversity_controller:
+                node = self._diversity_controller.get_lineage(individual.id)
+                if node:
+                    node.fitness = score
+
         if self.evo_config.adaptive_mutation_weights:
             self._recompute_operator_weights()
+
+        # MVP 3: Record generation-level ablation stats
+        if self._ablation_tracker:
+            best_fitness = max(fitness_scores) if fitness_scores else 0.0
+            avg_fitness = sum(fitness_scores) / len(fitness_scores) if fitness_scores else 0.0
+            self._ablation_tracker.record_generation(
+                generation=population.generation,
+                best_fitness=best_fitness,
+                avg_fitness=avg_fitness,
+                operator_counts=generation_attempts,
+            )
+
+        # MVP 3: Track diversity metrics
+        if self._diversity_controller:
+            self._last_diversity_metrics = self._diversity_controller.measure_diversity(
+                population
+            ).to_dict()
 
         self._last_generation_summary = {}
         for operator_name, attempts in generation_attempts.items():
@@ -290,6 +415,100 @@ class GeneticAlgorithmStrategy(BaseStrategy):
     def get_last_generation_summary(self) -> dict[str, dict[str, float]]:
         """Return telemetry captured for the most recent evaluated generation."""
         return self._last_generation_summary.copy()
+
+    # =========================================================================
+    # MVP 3: Diversity and Lineage Methods
+    # =========================================================================
+
+    def get_diversity_metrics(self) -> dict[str, Any]:
+        """Return current population diversity metrics.
+
+        Returns:
+            Dictionary with diversity metrics or empty if not tracking.
+        """
+        return self._last_diversity_metrics.copy()
+
+    def get_detected_task_type(self) -> str | None:
+        """Return the detected task type from the seed prompt.
+
+        Returns:
+            Task type string or None if not detected.
+        """
+        return self._detected_task_type
+
+    def get_detected_output_mode(self) -> str | None:
+        """Return the detected output mode from the seed prompt.
+
+        Returns:
+            Output mode string or None if not detected.
+        """
+        return self._detected_output_mode
+
+    def get_lineage_report(self, individual: Individual) -> dict[str, Any]:
+        """Generate lineage report for an individual.
+
+        Args:
+            individual: The individual to report on.
+
+        Returns:
+            Lineage report dictionary.
+        """
+        if not self._diversity_controller:
+            return {"error": "Diversity control not enabled"}
+
+        result: dict[str, Any] = self._diversity_controller.generate_lineage_report(
+            individual
+        )
+        return result
+
+    def get_ablation_result(self) -> dict[str, Any] | None:
+        """Get ablation analysis result.
+
+        Returns:
+            Ablation result dictionary or None if not tracking.
+        """
+        if not self._ablation_tracker:
+            return None
+
+        result = self._ablation_tracker.generate_result()
+        ablation_dict: dict[str, Any] = result.to_dict()
+        return ablation_dict
+
+    def get_ablation_summary(self) -> str:
+        """Get human-readable ablation summary.
+
+        Returns:
+            Formatted summary string.
+        """
+        if not self._ablation_tracker:
+            return "Ablation tracking not enabled"
+
+        summary: str = self._ablation_tracker.get_summary()
+        return summary
+
+    def apply_crowding_penalty(
+        self,
+        population: Population,
+        fitness_scores: list[float],
+    ) -> list[float]:
+        """Apply crowding penalty to fitness scores for diversity.
+
+        Args:
+            population: Current population.
+            fitness_scores: Original fitness scores.
+
+        Returns:
+            Adjusted fitness scores.
+        """
+        if not self._diversity_controller:
+            return fitness_scores
+
+        adjusted: list[float] = self._diversity_controller.apply_crowding_penalty(
+            population,
+            fitness_scores,
+            penalty_factor=self.evo_config.crowding_penalty,
+        )
+        return adjusted
 
     def get_checkpoint_state(self) -> dict[str, Any]:
         """Serialize adaptive operator state for checkpointing."""
