@@ -277,11 +277,18 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Fix all mypy type annotation errors (18 errors fixed)
 - [x] Ensure all tests pass (366 tests)
 
-### Phase 3.6: Validation (In Progress)
-- [ ] Run optimization on benchmark tasks with MVP 3 features
-- [ ] Compare results with MVP 2 baseline
-- [ ] Demonstrate improvement explanation via lineage reporting
-- [ ] Document operator effectiveness from ablation analysis
+### Phase 3.6: Validation ✅
+- [x] Run optimization on benchmark tasks with MVP 3 features
+- [x] Compare results with MVP 2 baseline
+- [x] Demonstrate improvement explanation via lineage reporting
+- [x] Document operator effectiveness from ablation analysis
+
+**Validation summary (2026-03-07):**
+- Sentiment classification matched the MVP 2 baseline at `1.0000` best fitness under the 180s validation budget.
+- JSON formatting improved from `0.8946` (baseline) to `0.9299` with MVP 3 diagnostics enabled.
+- Structured extraction improved from `0.9769` (baseline) to `0.9831` in the best MVP 3 validation run.
+- Saved result artifacts now include detected task type/output mode, diversity metrics, adaptive schedule state, ablation summaries, and lineage reports for best prompts.
+- Operator evidence from the validation runs consistently favored `add_answer_only_directive`, and the strongest extraction run also favored `promote_structured_layout`.
 
 ---
 

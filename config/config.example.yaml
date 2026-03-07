@@ -27,6 +27,16 @@ strategy:
     crossover_rate: 0.7
     tournament_size: 3
     elitism: 2
+    adaptive_mutation_weights: true
+    min_operator_weight: 0.4
+    weight_learning_rate: 0.8
+    use_semantic_mutations: true
+    use_diversity_control: true
+    use_adaptive_schedule: true
+    schedule_type: operator
+    enable_ablation_tracking: true
+    min_diversity_ratio: 0.7
+    crowding_penalty: 0.1
 
 # =============================================================================
 # LLM Settings (Local text-generation-webui)

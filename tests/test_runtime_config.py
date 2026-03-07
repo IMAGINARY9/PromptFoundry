@@ -7,9 +7,9 @@ Tests cover:
 - RuntimeConfig immutability
 """
 
-import pytest
-from pathlib import Path
 import tempfile
+
+import pytest
 
 from promptfoundry.core.config import (
     RuntimeConfig,
@@ -44,7 +44,7 @@ class TestRuntimeConfigFromProfile:
     def test_slow_local_profile(self) -> None:
         """Test slow-local profile has expected settings."""
         config = RuntimeConfig.from_profile("slow-local")
-        
+
         assert config.profile == RuntimeProfile.SLOW_LOCAL
         assert config.population_size == 3
         assert config.max_concurrency == 1
@@ -54,7 +54,7 @@ class TestRuntimeConfigFromProfile:
     def test_balanced_profile(self) -> None:
         """Test balanced profile has expected settings."""
         config = RuntimeConfig.from_profile("balanced")
-        
+
         assert config.profile == RuntimeProfile.BALANCED
         assert config.population_size == 8
         assert config.max_concurrency == 4
@@ -62,7 +62,7 @@ class TestRuntimeConfigFromProfile:
     def test_throughput_profile(self) -> None:
         """Test throughput profile has expected settings."""
         config = RuntimeConfig.from_profile("throughput")
-        
+
         assert config.profile == RuntimeProfile.THROUGHPUT
         assert config.population_size == 20
         assert config.max_concurrency == 16
@@ -90,7 +90,7 @@ class TestRuntimeConfigFromDict:
             "patience": 20,
         }
         config = RuntimeConfig.from_dict(data)
-        
+
         assert config.max_generations == 100
         assert config.population_size == 15
         assert config.patience == 20
@@ -105,7 +105,7 @@ class TestRuntimeConfigFromDict:
             "llm": {"base_url": "http://example.com"},
         }
         config = RuntimeConfig.from_dict(data)
-        
+
         assert config.max_generations == 50
         assert config.max_concurrency == 8
 
@@ -118,8 +118,8 @@ class TestRuntimeConfigFromDict:
             }
         }
         config = RuntimeConfig.from_dict(data)
-        
-        # Profile should be slow-local but overridden values should apply  
+
+        # Profile should be slow-local but overridden values should apply
         assert config.max_generations == 30
         # Non-overridden values come from profile
         assert config.max_concurrency == 1
@@ -131,7 +131,7 @@ class TestRuntimeConfigFromDict:
             "runtime_budget": 3600.0,
         }
         config = RuntimeConfig.from_dict(data)
-        
+
         assert config.timeout_per_request == 90.0
         assert config.runtime_budget_seconds == 3600.0
 
@@ -150,9 +150,9 @@ optimization:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(yaml_content)
             f.flush()
-            
+
             config = RuntimeConfig.from_yaml(f.name)
-            
+
             assert config.max_generations == 25
             assert config.population_size == 5
             # slow-local defaults for non-overridden values
@@ -164,9 +164,9 @@ optimization:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(yaml_content)
             f.flush()
-            
+
             config = RuntimeConfig.from_yaml(f.name)
-            
+
             # Should use balanced defaults
             assert config.profile == RuntimeProfile.BALANCED
 
@@ -178,7 +178,7 @@ class TestRuntimeConfigOverrides:
         """Test that with_overrides creates new config."""
         config = RuntimeConfig.from_profile("balanced")
         new_config = config.with_overrides(max_generations=200)
-        
+
         # New config should have override
         assert new_config.max_generations == 200
         # Original should be unchanged (frozen dataclass)
@@ -191,7 +191,7 @@ class TestRuntimeConfigOverrides:
             max_generations=None,
             population_size=15,
         )
-        
+
         # None should not override
         assert new_config.max_generations == config.max_generations
         # Non-None should override
@@ -201,14 +201,14 @@ class TestRuntimeConfigOverrides:
         """Test that overrides mark profile as custom."""
         config = RuntimeConfig.from_profile("balanced")
         new_config = config.with_overrides(max_generations=200)
-        
+
         assert new_config.profile == RuntimeProfile.CUSTOM
 
     def test_no_overrides_returns_same(self) -> None:
         """Test that no overrides returns same config."""
         config = RuntimeConfig.from_profile("balanced")
         same_config = config.with_overrides()
-        
+
         assert same_config is config
 
 
@@ -225,10 +225,10 @@ class TestRuntimeConfigPrecedence:
                 "population_size": 10,
             }
         })
-        
+
         # CLI override
         final_config = yaml_config.with_overrides(max_generations=100)
-        
+
         assert final_config.max_generations == 100  # CLI override
         assert final_config.population_size == 10  # From YAML
 
@@ -240,7 +240,7 @@ class TestRuntimeConfigPrecedence:
                 "max_concurrency": 4,  # Override slow-local default of 1
             }
         })
-        
+
         assert config.max_concurrency == 4
 
     def test_full_precedence_chain(self) -> None:
@@ -248,13 +248,13 @@ class TestRuntimeConfigPrecedence:
         # 1. Start with profile
         base_config = RuntimeConfig.from_profile("slow-local")
         assert base_config.population_size == 3
-        
+
         # 2. Apply YAML overrides (simulated)
         yaml_overrides = {"population_size": 6, "patience": 15}
         yaml_config = base_config.with_overrides(**yaml_overrides)
         assert yaml_config.population_size == 6
         assert yaml_config.patience == 15
-        
+
         # 3. Apply CLI overrides
         cli_config = yaml_config.with_overrides(population_size=10)
         assert cli_config.population_size == 10  # CLI wins
@@ -269,7 +269,7 @@ class TestRuntimeConfigSerialization:
         """Test converting config to dict."""
         config = RuntimeConfig.from_profile("balanced")
         data = config.to_dict()
-        
+
         assert data["profile"] == "balanced"
         assert data["max_generations"] == 50
         assert data["population_size"] == 8
@@ -279,7 +279,7 @@ class TestRuntimeConfigSerialization:
         """Test human-readable description."""
         config = RuntimeConfig.from_profile("slow-local")
         desc = config.describe()
-        
+
         assert "slow-local" in desc
         assert "Population Size: 3" in desc
         assert "Max Concurrency: 1" in desc
@@ -291,7 +291,7 @@ class TestRuntimeConfigImmutability:
     def test_cannot_modify_fields(self) -> None:
         """Test that config fields cannot be modified."""
         config = RuntimeConfig.from_profile("balanced")
-        
+
         with pytest.raises(AttributeError):
             config.max_generations = 100  # type: ignore
 
@@ -299,6 +299,6 @@ class TestRuntimeConfigImmutability:
         """Test that with_overrides returns a new instance."""
         config = RuntimeConfig.from_profile("balanced")
         new_config = config.with_overrides(population_size=20)
-        
+
         assert config is not new_config
         assert id(config) != id(new_config)

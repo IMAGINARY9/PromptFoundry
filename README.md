@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: MVP 2](https://img.shields.io/badge/Status-MVP%202%20Complete-green.svg)]()
+[![Status: MVP 3](https://img.shields.io/badge/Status-MVP%203%20Complete-green.svg)]()
 
 ---
 
@@ -21,6 +21,8 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 - 📈 **Progress tracking**: Rich CLI with progress bars, per-generation timing, and cancelable runs
 - ⚡ **Caching & concurrency**: Avoids duplicate LLM requests and evaluates examples in parallel
 - 🧠 **Adaptive mutations**: Tracks operator win rates and reweights mutation operators during a run
+- 🌱 **Diversity-aware evolution**: Suppresses duplicates, applies crowding penalties, and tracks lineage
+- 🧪 **Ablation diagnostics**: Captures per-operator effectiveness summaries in saved result files
 - ✅ **Smarter exact match**: Normalizes concise label and numeric answers out of verbose completions
 - 💾 **Resumable checkpoints**: Saves population, cache, and operator state for true resume support
 - 🛠️ **Extensible**: Protocol-based interfaces for custom components
@@ -30,7 +32,7 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 - Current search method: evolutionary optimization only
 - Current strengths: format-constrained tasks, extraction, classification, and tasks with cheap proxy metrics
 - Current limitation: performance is still dominated by the LLM backend, especially on extraction-heavy tasks that need richer structural evaluators than fuzzy match alone
-- Planned next step: broaden benchmark-backed operator quality and diversity controls before adding more search algorithms
+- Planned next step: keep alternative search methods behind benchmark evidence before expanding beyond the evolutionary baseline
 
 ---
 
@@ -97,6 +99,23 @@ optimization:
 ```
 
 Prefer cheaper proxy metrics first, then reserve exact-match or expensive judge-style checks for a shortlist of promising candidates.
+
+### MVP 3 Evolutionary Controls
+
+MVP 3 adds task-aware mutation controls that can be configured entirely from YAML:
+
+```yaml
+strategy:
+  evolutionary:
+    use_semantic_mutations: true
+    use_diversity_control: true
+    use_adaptive_schedule: true
+    schedule_type: operator
+    enable_ablation_tracking: true
+    crowding_penalty: 0.1
+```
+
+Saved optimization results now include detected task type/output mode, diversity metrics, schedule state, and ablation summaries.
 
 ---
 

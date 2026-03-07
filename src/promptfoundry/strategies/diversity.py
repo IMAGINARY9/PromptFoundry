@@ -11,8 +11,9 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any
 
 from promptfoundry.core.population import Individual, Population
 

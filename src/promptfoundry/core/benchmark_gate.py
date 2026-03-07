@@ -25,7 +25,7 @@ class BenchmarkTaskType(Enum):
 @dataclass(frozen=True)
 class BenchmarkThreshold:
     """Minimum improvement thresholds for a benchmark.
-    
+
     Attributes:
         min_improvement: Minimum absolute improvement required.
         min_improvement_percent: Minimum percentage improvement required.
@@ -42,29 +42,29 @@ class BenchmarkThreshold:
 
     def check_improvement(self, improvement: float, baseline: float) -> bool:
         """Check if improvement meets thresholds.
-        
+
         Args:
             improvement: Absolute improvement value.
             baseline: Baseline (seed) fitness.
-            
+
         Returns:
             True if improvement meets thresholds.
         """
         if improvement < self.min_improvement:
             return False
-        
+
         if baseline > 0:
             percent = (improvement / baseline) * 100
             if percent < self.min_improvement_percent:
                 return False
-        
+
         return True
 
 
 @dataclass
 class BenchmarkTask:
     """A single benchmark task definition.
-    
+
     Attributes:
         name: Task name (e.g., "sentiment_classification").
         task_type: Category of the task.
@@ -85,7 +85,7 @@ class BenchmarkTask:
 @dataclass
 class GateResult:
     """Result of running a benchmark gate check.
-    
+
     Attributes:
         passed: Whether all gates were passed.
         task_results: Per-task gate results.
@@ -192,7 +192,7 @@ DEFAULT_BENCHMARK_SUITE: list[BenchmarkTask] = [
 
 class BenchmarkGate:
     """Gate for validating benchmark results meet quality thresholds.
-    
+
     Example:
         >>> gate = BenchmarkGate(suite=DEFAULT_BENCHMARK_SUITE)
         >>> result = gate.check_results(diagnostics_list)
@@ -209,7 +209,7 @@ class BenchmarkGate:
         global_threshold: BenchmarkThreshold | None = None,
     ) -> None:
         """Initialize the benchmark gate.
-        
+
         Args:
             suite: List of benchmark tasks. Defaults to DEFAULT_BENCHMARK_SUITE.
             global_threshold: Global threshold to apply if task-specific not set.
@@ -233,11 +233,11 @@ class BenchmarkGate:
         task: BenchmarkTask | None = None,
     ) -> tuple[bool, list[str]]:
         """Check if a single run meets thresholds.
-        
+
         Args:
             diag: Diagnostics from the run.
             task: Optional task definition with specific thresholds.
-            
+
         Returns:
             Tuple of (passed, list of failure reasons).
         """
@@ -273,10 +273,10 @@ class BenchmarkGate:
         diagnostics: list[RunDiagnostics],
     ) -> GateResult:
         """Check multiple run results against benchmark gates.
-        
+
         Args:
             diagnostics: List of diagnostics from benchmark runs.
-            
+
         Returns:
             GateResult with pass/fail status and details.
         """
@@ -382,35 +382,35 @@ class BenchmarkGate:
 
     def format_report(self, gate_result: GateResult) -> str:
         """Format a gate result as a report string.
-        
+
         Args:
             gate_result: Result to format.
-            
+
         Returns:
             Formatted report string.
         """
         lines = []
-        
+
         lines.append("=" * 60)
         lines.append("BENCHMARK GATE REPORT")
         lines.append("=" * 60)
-        
+
         # Overall status
         status = "PASSED" if gate_result.passed else "FAILED"
         lines.append(f"\nStatus: {status}")
-        
+
         # Summary
         summary = gate_result.summary
-        lines.append(f"\n--- Summary ---")
+        lines.append("\n--- Summary ---")
         lines.append(f"Total Runs:      {summary.get('total_runs', 0)}")
         lines.append(f"Successful:      {summary.get('successful_runs', 0)}")
         lines.append(f"No Signal:       {summary.get('no_signal_runs', 0)}")
         lines.append(f"Success Rate:    {summary.get('success_rate', 0)*100:.0f}%")
         lines.append(f"Tasks Checked:   {summary.get('tasks_checked', 0)}")
         lines.append(f"Tasks Passed:    {summary.get('tasks_passed', 0)}")
-        
+
         # Per-task results
-        lines.append(f"\n--- Task Results ---")
+        lines.append("\n--- Task Results ---")
         for task_name, task_result in gate_result.task_results.items():
             status_str = "PASS" if task_result["passed"] else "FAIL"
             lines.append(f"\n{task_name}: {status_str}")
@@ -420,21 +420,21 @@ class BenchmarkGate:
             if task_result.get("failures"):
                 for failure in task_result["failures"]:
                     lines.append(f"  - {failure}")
-        
+
         # Failures
         if gate_result.failures:
-            lines.append(f"\n--- Failures ---")
+            lines.append("\n--- Failures ---")
             for failure in gate_result.failures:
                 lines.append(f"  x {failure}")
-        
+
         # Warnings
         if gate_result.warnings:
-            lines.append(f"\n--- Warnings ---")
+            lines.append("\n--- Warnings ---")
             for warning in gate_result.warnings:
                 lines.append(f"  ! {warning}")
-        
+
         lines.append("\n" + "=" * 60)
-        
+
         return "\n".join(lines)
 
 
@@ -449,12 +449,12 @@ def create_custom_gate(
     max_no_signal_rate: float = 0.3,
 ) -> BenchmarkGate:
     """Create a gate with custom thresholds.
-    
+
     Args:
         min_improvement: Minimum improvement required.
         min_success_rate: Minimum success rate.
         max_no_signal_rate: Maximum no-signal rate.
-        
+
     Returns:
         Configured BenchmarkGate.
     """

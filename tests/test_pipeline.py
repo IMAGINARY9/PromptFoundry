@@ -5,6 +5,7 @@ Tests the StagedPipelineEvaluator, PipelineBuilder, and related utilities.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from typing import Any
 
 import pytest
@@ -18,7 +19,6 @@ from promptfoundry.evaluators.pipeline import (
     create_cheap_to_expensive_pipeline,
 )
 
-
 # =============================================================================
 # Test fixtures - Simple evaluators for testing
 # =============================================================================
@@ -29,9 +29,9 @@ class AlwaysPassEvaluator:
 
     def evaluate(
         self,
-        predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _predicted: str,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         return 1.0
 
@@ -41,9 +41,9 @@ class AlwaysFailEvaluator:
 
     def evaluate(
         self,
-        predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _predicted: str,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         return 0.0
 
@@ -56,9 +56,9 @@ class FixedScoreEvaluator:
 
     def evaluate(
         self,
-        predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _predicted: str,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         return self.score
 
@@ -70,7 +70,7 @@ class LengthBasedEvaluator:
         self,
         predicted: str,
         expected: str,
-        metadata: dict[str, Any] | None = None,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         if len(expected) == 0:
             return 1.0 if len(predicted) == 0 else 0.0
@@ -87,9 +87,9 @@ class CallCountEvaluator:
 
     def evaluate(
         self,
-        predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _predicted: str,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         self.call_count += 1
         return self.score
@@ -155,7 +155,7 @@ class TestEvaluationStage:
     def test_frozen(self) -> None:
         """Test that stage is immutable."""
         stage = EvaluationStage(name="test", evaluator=AlwaysPassEvaluator())
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(FrozenInstanceError):
             stage.name = "changed"  # type: ignore
 
 
@@ -297,28 +297,28 @@ class TestStagedPipelineEvaluator:
     def test_early_exit_on_filter_failure(self) -> None:
         """Test that pipeline exits early when filter fails."""
         expensive = CallCountEvaluator()
-        
+
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("cheap", AlwaysFailEvaluator(), threshold=0.5),
             EvaluationStage("expensive", expensive),
         ])
-        
+
         pipeline.evaluate("pred", "exp")
-        
+
         # Expensive evaluator should NOT be called
         assert expensive.call_count == 0
 
     def test_non_filter_stage_continues(self) -> None:
         """Test that non-filter stages don't cause early exit."""
         final = CallCountEvaluator(score=1.0)
-        
+
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("s1", FixedScoreEvaluator(0.3), threshold=0.5, is_filter=False),
             EvaluationStage("s2", final),
         ])
-        
+
         pipeline.evaluate("pred", "exp")
-        
+
         # Final stage should still run despite s1 being below threshold
         assert final.call_count == 1
 
@@ -328,9 +328,9 @@ class TestStagedPipelineEvaluator:
             EvaluationStage("s1", FixedScoreEvaluator(0.9), threshold=0.5),
             EvaluationStage("s2", FixedScoreEvaluator(0.7), threshold=0.5),
         ])
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         assert result.stages_completed == 2
         assert result.early_exit is False
         assert len(result.stage_results) == 2
@@ -345,9 +345,9 @@ class TestStagedPipelineEvaluator:
             EvaluationStage("s2", AlwaysPassEvaluator()),
             EvaluationStage("s3", AlwaysPassEvaluator()),
         ])
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         assert result.early_exit is True
         assert result.early_exit_stage == "s1"
         assert result.stages_completed == 1
@@ -360,7 +360,7 @@ class TestStagedPipelineEvaluator:
             EvaluationStage("s1", FixedScoreEvaluator(0.6), weight=1.0),
             EvaluationStage("s2", FixedScoreEvaluator(0.8), weight=3.0),
         ])
-        
+
         score = pipeline.evaluate("pred", "exp")
         # Weighted mean: (0.6 * 1 + 0.8 * 3) / 4 = 3.0 / 4 = 0.75
         assert score == pytest.approx(0.75)
@@ -374,7 +374,7 @@ class TestStagedPipelineEvaluator:
             ],
             aggregation="product",
         )
-        
+
         score = pipeline.evaluate("pred", "exp")
         # Product: (0.8 * 0.8) ^ (1/2) = 0.64 ^ 0.5 = 0.8
         assert score == pytest.approx(0.8)
@@ -384,12 +384,12 @@ class TestStagedPipelineEvaluator:
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", LengthBasedEvaluator()),
         ])
-        
+
         scores = pipeline.evaluate_batch(
             predictions=["hello", "hi", "hello world"],
             expected=["hello", "hello", "hello"],
         )
-        
+
         assert len(scores) == 3
         assert scores[0] == pytest.approx(1.0)  # exact match
         assert scores[1] < 1.0  # shorter
@@ -400,7 +400,7 @@ class TestStagedPipelineEvaluator:
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", AlwaysPassEvaluator()),
         ])
-        
+
         with pytest.raises(ValueError, match="Length mismatch"):
             pipeline.evaluate_batch(["a", "b"], ["a"])
 
@@ -409,9 +409,9 @@ class TestStagedPipelineEvaluator:
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", FixedScoreEvaluator(0.7)),
         ])
-        
+
         results = pipeline.evaluate_batch_detailed(["a", "b"], ["a", "b"])
-        
+
         assert len(results) == 2
         assert all(isinstance(r, PipelineResult) for r in results)
         assert all(r.final_score == 0.7 for r in results)
@@ -421,7 +421,7 @@ class TestStagedPipelineEvaluator:
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", AlwaysPassEvaluator()),
         ])
-        
+
         agg = pipeline.aggregate([0.8, 0.6, 1.0])
         assert agg == pytest.approx(0.8)
 
@@ -430,7 +430,7 @@ class TestStagedPipelineEvaluator:
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", AlwaysPassEvaluator()),
         ])
-        
+
         assert pipeline.aggregate([]) == 0.0
 
     def test_get_evaluator_info(self) -> None:
@@ -439,9 +439,9 @@ class TestStagedPipelineEvaluator:
             EvaluationStage("s1", FixedScoreEvaluator(1.0), weight=2.0, threshold=0.5),
             EvaluationStage("s2", AlwaysPassEvaluator()),
         ])
-        
+
         info = pipeline.get_evaluator_info()
-        
+
         assert info["name"] == "StagedPipelineEvaluator"
         assert info["aggregation"] == "weighted_mean"
         assert len(info["stages"]) == 2
@@ -453,10 +453,10 @@ class TestStagedPipelineEvaluator:
         """Test the stages property returns a copy."""
         original_stages = [EvaluationStage("test", AlwaysPassEvaluator())]
         pipeline = StagedPipelineEvaluator(original_stages)
-        
+
         stages = pipeline.stages
         stages.append(EvaluationStage("new", AlwaysPassEvaluator()))
-        
+
         # Original should be unchanged
         assert len(pipeline.stages) == 1
 
@@ -467,9 +467,9 @@ class TestStagedPipelineEvaluator:
             EvaluationStage("s2", AlwaysPassEvaluator()),
             EvaluationStage("s3", AlwaysPassEvaluator()),
         ])
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         # Only 1/3 stages completed, so progress = 0.333...
         # Score of completed = 0.4
         # Partial = 0.4 * (1/3) ≈ 0.133
@@ -491,7 +491,7 @@ class TestPipelineBuilder:
             .add_filter("f1", AlwaysPassEvaluator())
             .build()
         )
-        
+
         assert len(pipeline.stages) == 1
 
     def test_add_filter(self) -> None:
@@ -501,7 +501,7 @@ class TestPipelineBuilder:
             .add_filter("f1", FixedScoreEvaluator(0.8), threshold=0.7, weight=2.0)
             .build()
         )
-        
+
         stage = pipeline.stages[0]
         assert stage.name == "f1"
         assert stage.threshold == 0.7
@@ -515,7 +515,7 @@ class TestPipelineBuilder:
             .add_scorer("s1", FixedScoreEvaluator(0.5), weight=3.0)
             .build()
         )
-        
+
         stage = pipeline.stages[0]
         assert stage.name == "s1"
         assert stage.threshold == 0.0
@@ -530,7 +530,7 @@ class TestPipelineBuilder:
             .with_fail_score(0.1)
             .build()
         )
-        
+
         # Check via evaluator info
         info = pipeline.get_evaluator_info()
         assert info["fail_score"] == 0.1
@@ -543,7 +543,7 @@ class TestPipelineBuilder:
             .aggregate_with("product")
             .build()
         )
-        
+
         info = pipeline.get_evaluator_info()
         assert info["aggregation"] == "product"
 
@@ -572,7 +572,7 @@ class TestPipelineBuilder:
             .aggregate_with("weighted_mean")
             .build()
         )
-        
+
         assert len(pipeline.stages) == 3
         assert pipeline.stages[0].name == "json_check"
         assert pipeline.stages[1].name == "length_check"
@@ -592,7 +592,7 @@ class TestCreateCheapToExpensivePipeline:
         cheap1 = FixedScoreEvaluator(1.0)
         cheap2 = FixedScoreEvaluator(0.8)
         expensive = FixedScoreEvaluator(0.9)
-        
+
         pipeline = create_cheap_to_expensive_pipeline(
             cheap_evaluators=[
                 ("json", cheap1, 0.5),
@@ -601,14 +601,14 @@ class TestCreateCheapToExpensivePipeline:
             expensive_evaluator=("llm", expensive, 2.0),
             cheap_threshold=0.5,
         )
-        
+
         assert len(pipeline.stages) == 3
-        
+
         # Cheap stages are filters
         assert pipeline.stages[0].is_filter is True
         assert pipeline.stages[0].threshold == 0.5
         assert pipeline.stages[1].is_filter is True
-        
+
         # Expensive stage is not a filter
         assert pipeline.stages[2].is_filter is False
         assert pipeline.stages[2].weight == 2.0
@@ -616,7 +616,7 @@ class TestCreateCheapToExpensivePipeline:
     def test_cheap_filter_prevents_expensive(self) -> None:
         """Test that cheap filter failure skips expensive evaluator."""
         expensive = CallCountEvaluator()
-        
+
         pipeline = create_cheap_to_expensive_pipeline(
             cheap_evaluators=[
                 ("cheap", AlwaysFailEvaluator(), 1.0),
@@ -624,15 +624,15 @@ class TestCreateCheapToExpensivePipeline:
             expensive_evaluator=("expensive", expensive, 1.0),
             cheap_threshold=0.5,
         )
-        
+
         pipeline.evaluate("pred", "exp")
-        
+
         assert expensive.call_count == 0
 
     def test_passes_all_cheap_runs_expensive(self) -> None:
         """Test that passing all cheap stages runs expensive evaluator."""
         expensive = CallCountEvaluator(score=0.9)
-        
+
         pipeline = create_cheap_to_expensive_pipeline(
             cheap_evaluators=[
                 ("c1", AlwaysPassEvaluator(), 0.5),
@@ -641,9 +641,9 @@ class TestCreateCheapToExpensivePipeline:
             expensive_evaluator=("expensive", expensive, 2.0),
             cheap_threshold=0.5,
         )
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         assert expensive.call_count == 1
         assert result.passed_all_filters is True
 
@@ -661,16 +661,16 @@ class TestPipelineIntegration:
         # Simulating: JSON check → content quality
         json_like = FixedScoreEvaluator(1.0)  # Pretend it's valid JSON
         quality = FixedScoreEvaluator(0.85)
-        
+
         pipeline = (
             PipelineBuilder()
             .add_filter("json_valid", json_like, threshold=1.0)
             .add_scorer("quality", quality, weight=2.0)
             .build()
         )
-        
+
         result = pipeline.evaluate_detailed('{"key": "value"}', '{"key": "value"}')
-        
+
         assert result.passed_all_filters is True
         assert result.stages_completed == 2
 
@@ -684,9 +684,9 @@ class TestPipelineIntegration:
             .add_scorer("final_quality", FixedScoreEvaluator(0.95), weight=3.0)
             .build()
         )
-        
+
         result = pipeline.evaluate_detailed("test output", "expected")
-        
+
         assert result.stages_completed == 4
         assert result.passed_all_filters is True
         # All scores contribute
@@ -695,31 +695,31 @@ class TestPipelineIntegration:
     def test_early_fail_cost_savings(self) -> None:
         """Test that early failure saves expensive evaluator calls."""
         call_counts: dict[str, int] = {"cheap": 0, "medium": 0, "expensive": 0}
-        
+
         class TrackingEvaluator:
             def __init__(self, name: str, score: float):
                 self.name = name
                 self.score = score
-            
+
             def evaluate(
                 self,
-                predicted: str,
-                expected: str,
-                metadata: dict[str, Any] | None = None,
+                _predicted: str,
+                _expected: str,
+                _metadata: dict[str, Any] | None = None,
             ) -> float:
                 call_counts[self.name] += 1
                 return self.score
-        
+
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("cheap", TrackingEvaluator("cheap", 0.2), threshold=0.5),
             EvaluationStage("medium", TrackingEvaluator("medium", 1.0)),
             EvaluationStage("expensive", TrackingEvaluator("expensive", 1.0)),
         ])
-        
+
         # Run on 10 candidates
         for _ in range(10):
             pipeline.evaluate("bad output", "expected")
-        
+
         # Only cheap evaluator should run
         assert call_counts["cheap"] == 10
         assert call_counts["medium"] == 0
@@ -728,25 +728,25 @@ class TestPipelineIntegration:
     def test_metadata_passed_through(self) -> None:
         """Test that metadata is passed to all evaluators."""
         received_metadata: list[dict[str, Any]] = []
-        
+
         class MetadataCapture:
             def evaluate(
                 self,
-                predicted: str,
-                expected: str,
-                metadata: dict[str, Any] | None = None,
+                _predicted: str,
+                _expected: str,
+                _metadata: dict[str, Any] | None = None,
             ) -> float:
-                if metadata:
-                    received_metadata.append(metadata)
+                if _metadata:
+                    received_metadata.append(_metadata)
                 return 1.0
-        
+
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("s1", MetadataCapture()),
             EvaluationStage("s2", MetadataCapture()),
         ])
-        
+
         pipeline.evaluate("pred", "exp", metadata={"task_id": "123"})
-        
+
         assert len(received_metadata) == 2
         assert all(m["task_id"] == "123" for m in received_metadata)
 
@@ -765,7 +765,7 @@ class TestEdgeCases:
             EvaluationStage("s1", FixedScoreEvaluator(0.5), weight=0.0),
             EvaluationStage("s2", FixedScoreEvaluator(1.0), weight=1.0),
         ])
-        
+
         score = pipeline.evaluate("pred", "exp")
         # Only s2 contributes: 1.0
         assert score == pytest.approx(1.0)
@@ -776,7 +776,7 @@ class TestEdgeCases:
             EvaluationStage("s1", FixedScoreEvaluator(0.5), weight=0.0),
             EvaluationStage("s2", FixedScoreEvaluator(1.0), weight=0.0),
         ])
-        
+
         score = pipeline.evaluate("pred", "exp")
         assert score == 0.0
 
@@ -786,9 +786,9 @@ class TestEdgeCases:
             EvaluationStage("s1", FixedScoreEvaluator(0.5), threshold=0.5),
             EvaluationStage("s2", AlwaysPassEvaluator()),
         ])
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         assert result.early_exit is False
         assert result.stages_completed == 2
 
@@ -798,9 +798,9 @@ class TestEdgeCases:
             EvaluationStage("s1", FixedScoreEvaluator(0.499), threshold=0.5),
             EvaluationStage("s2", AlwaysPassEvaluator()),
         ])
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         assert result.early_exit is True
         assert result.early_exit_stage == "s1"
 
@@ -811,9 +811,9 @@ class TestEdgeCases:
             EvaluationStage("s2", FixedScoreEvaluator(0.1), threshold=0.5),  # fails
             EvaluationStage("s3", AlwaysPassEvaluator()),
         ])
-        
+
         result = pipeline.evaluate_detailed("pred", "exp")
-        
+
         assert result.stages_completed == 2
         assert result.early_exit is True
         assert result.early_exit_stage == "s2"
@@ -823,17 +823,17 @@ class TestEdgeCases:
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", AlwaysPassEvaluator()),
         ])
-        
+
         score = pipeline.evaluate("", "")
         assert score == 1.0
 
     def test_very_long_strings(self) -> None:
         """Test evaluation with very long strings."""
         long_str = "x" * 100000
-        
+
         pipeline = StagedPipelineEvaluator([
             EvaluationStage("test", LengthBasedEvaluator()),
         ])
-        
+
         score = pipeline.evaluate(long_str, long_str)
         assert score == 1.0

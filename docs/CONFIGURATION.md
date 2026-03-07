@@ -80,6 +80,15 @@ strategy:
     min_operator_weight: 0.4
     weight_learning_rate: 0.8
 
+    # MVP 3 evolutionary-quality controls
+    use_semantic_mutations: true
+    use_diversity_control: true
+    use_adaptive_schedule: true
+    schedule_type: operator  # adaptive | linear | constant | operator
+    enable_ablation_tracking: true
+    min_diversity_ratio: 0.7
+    crowding_penalty: 0.1
+
     # The semantic mutation/crossover operator library is built in.
     # Tune behavior through weights and rates rather than operator name lists.
   
@@ -207,6 +216,15 @@ output:
   # evaluated during a run in the history metadata under
   # `history.generations[].metadata.interactions`.  This log can grow large,
   # so only enable it when diagnosing problems.
+
+  # MVP 3 diagnostics included in each result file:
+  # - detected_task_type
+  # - detected_output_mode
+  # - diversity_metrics
+  # - schedule_state
+  # - ablation_result
+  # - ablation_summary
+  # - lineage_report
 
 ```
 

@@ -12,12 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core documentation (REQUIREMENTS, ARCHITECTURE, IMPLEMENTATION_PLAN)
 - Development tooling configuration (ruff, mypy, pytest)
 - pyproject.toml with dependencies
+- MVP 3 semantic mutation, diversity, scheduling, and ablation modules
+- MVP 3 validation configs for baseline and full evolutionary-quality runs
 
 ### Changed
-- N/A
+- Evolutionary runtime now applies crowding penalties during selection
+- CLI configuration now exposes MVP 3 strategy controls and saves diversity/schedule/ablation diagnostics in result files
+- Optimization results now persist lineage reports for best prompts
 
 ### Fixed
-- N/A
+- Wired adaptive mutation schedules into the live evolutionary loop instead of leaving them dormant
 
 ### Removed
 - N/A

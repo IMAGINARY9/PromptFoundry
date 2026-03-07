@@ -1,0 +1,32 @@
+optimization:
+  profile: slow-local
+  max_generations: 6
+  population_size: 4
+  patience: 4
+  max_concurrency: 1
+  seed: 42
+
+strategy:
+  evolutionary:
+    mutation_rate: 0.3
+    crossover_rate: 0.7
+    tournament_size: 3
+    elitism: 2
+    adaptive_mutation_weights: true
+    min_operator_weight: 0.4
+    weight_learning_rate: 0.8
+    use_semantic_mutations: true
+    use_diversity_control: true
+    use_adaptive_schedule: true
+    schedule_type: operator
+    enable_ablation_tracking: true
+    min_diversity_ratio: 0.7
+    crowding_penalty: 0.1
+
+llm:
+  provider: openai_compat
+  base_url: http://127.0.0.1:5000/v1
+  api_key: local
+
+output:
+  directory: ./output/mvp3_validation/mvp3

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
 from promptfoundry.strategies.diversity import (
@@ -219,7 +217,7 @@ class TestDiversityController:
         # Some penalties should be applied to similar prompts
         # The exact amount depends on similarity calculation
         # At minimum, verify adjusted scores are <= original
-        for i, (adj, orig) in enumerate(zip(adjusted, original_scores)):
+        for i, (adj, orig) in enumerate(zip(adjusted, original_scores, strict=True)):
             assert adj <= orig, f"adjusted[{i}]={adj} > original[{i}]={orig}"
 
     def test_select_diverse_subset(self) -> None:

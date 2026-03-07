@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from promptfoundry.strategies.semantic_mutations import (
     OutputMode,
     SemanticMutation,

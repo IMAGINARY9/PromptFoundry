@@ -20,18 +20,17 @@ from __future__ import annotations
 
 import json
 import re
-from abc import abstractmethod
-from typing import Any, Callable
+from typing import Any
 
 from promptfoundry.evaluators.base import BaseEvaluator
 
 
 class JsonParseEvaluator(BaseEvaluator):
     """Evaluator that checks if output is valid JSON.
-    
+
     This is one of the cheapest evaluators - just checks parse success.
     Useful as a first-stage filter for JSON-producing tasks.
-    
+
     Example:
         >>> evaluator = JsonParseEvaluator()
         >>> evaluator.evaluate('{"key": "value"}', '')  # Returns 1.0
@@ -45,7 +44,7 @@ class JsonParseEvaluator(BaseEvaluator):
         case_sensitive: bool = True,
     ) -> None:
         """Initialize the JSON parse evaluator.
-        
+
         Args:
             extract_json: If True, try to extract JSON from mixed content.
             strip_whitespace: Whether to strip whitespace before parsing.
@@ -56,26 +55,26 @@ class JsonParseEvaluator(BaseEvaluator):
 
     def _extract_json_block(self, text: str) -> str | None:
         """Try to extract a JSON block from text.
-        
+
         Handles common patterns like:
         - Plain JSON
         - ```json ... ``` blocks
         - JSON surrounded by explanation text
         """
         text = text.strip()
-        
+
         # Try direct parse first
         try:
             json.loads(text)
             return text
         except json.JSONDecodeError:
             pass
-        
+
         # Try to extract from markdown code block
         code_block_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', text)
         if code_block_match:
             return code_block_match.group(1).strip()
-        
+
         # Try to find JSON object or array
         for pattern in [r'\{[\s\S]*\}', r'\[[\s\S]*\]']:
             match = re.search(pattern, text)
@@ -85,37 +84,37 @@ class JsonParseEvaluator(BaseEvaluator):
                     return match.group(0)
                 except json.JSONDecodeError:
                     continue
-        
+
         return None
 
     def evaluate(
         self,
         predicted: str,
-        expected: str,
+        _expected: str,
         metadata: dict[str, Any] | None = None,
     ) -> float:
         """Check if predicted output is valid JSON.
-        
+
         Args:
             predicted: The LLM's output.
             expected: Unused.
             metadata: Optional. Can contain 'json_type' to require object or array.
-        
+
         Returns:
             1.0 if valid JSON, 0.0 otherwise.
         """
         if self.strip_whitespace:
             predicted = predicted.strip()
-        
+
         if self.extract_json:
             json_text = self._extract_json_block(predicted)
             if json_text is None:
                 return 0.0
             predicted = json_text
-        
+
         try:
             parsed = json.loads(predicted)
-            
+
             # Check type constraint if specified
             if metadata:
                 required_type = metadata.get('json_type')
@@ -123,7 +122,7 @@ class JsonParseEvaluator(BaseEvaluator):
                     return 0.0
                 if required_type == 'array' and not isinstance(parsed, list):
                     return 0.0
-            
+
             return 1.0
         except json.JSONDecodeError:
             return 0.0
@@ -137,9 +136,9 @@ class JsonParseEvaluator(BaseEvaluator):
 
 class JsonSchemaEvaluator(BaseEvaluator):
     """Evaluator that validates JSON against a schema.
-    
+
     Provides partial credit based on how much of the schema is satisfied.
-    
+
     Example:
         >>> evaluator = JsonSchemaEvaluator(
         ...     required_keys=["name", "age"],
@@ -159,7 +158,7 @@ class JsonSchemaEvaluator(BaseEvaluator):
         case_sensitive: bool = True,
     ) -> None:
         """Initialize the JSON schema evaluator.
-        
+
         Args:
             required_keys: Keys that must be present.
             optional_keys: Keys that are allowed but not required.
@@ -178,67 +177,66 @@ class JsonSchemaEvaluator(BaseEvaluator):
     def evaluate(
         self,
         predicted: str,
-        expected: str,
+        _expected: str,
         metadata: dict[str, Any] | None = None,
     ) -> float:
         """Validate JSON against schema with partial credit.
-        
+
         Scoring:
         - 0.0 if not valid JSON
         - Partial credit for each required key present
         - Additional credit for correct types
-        
+
         Args:
             predicted: The LLM's output.
             expected: Unused (schema defined in constructor).
             metadata: Optional. Can override required_keys.
-        
+
         Returns:
             Score from 0.0 to 1.0 based on schema compliance.
         """
         # First check if it's valid JSON
         if self.strip_whitespace:
             predicted = predicted.strip()
-        
+
         json_text = self._json_parser._extract_json_block(predicted) if self.extract_json else predicted
         if json_text is None:
             return 0.0
-        
+
         try:
             parsed = json.loads(json_text)
         except json.JSONDecodeError:
             return 0.0
-        
+
         if not isinstance(parsed, dict):
             return 0.0
-        
+
         # Calculate score based on schema compliance
         requirements = metadata.get('required_keys', self.required_keys) if metadata else self.required_keys
         type_requirements = metadata.get('key_types', self.key_types) if metadata else self.key_types
-        
+
         if not requirements and not type_requirements:
             # No schema defined, just JSON validity
             return 1.0
-        
+
         total_checks = len(requirements) + len(type_requirements)
         if total_checks == 0:
             return 1.0
-        
+
         passed_checks = 0
-        
+
         # Check required keys
         for key in requirements:
             check_key = key if self.case_sensitive else key.lower()
-            parsed_keys = parsed.keys() if self.case_sensitive else [k.lower() for k in parsed.keys()]
-            if check_key in ([k for k in parsed_keys] if self.case_sensitive else parsed_keys):
+            parsed_keys = parsed.keys() if self.case_sensitive else [k.lower() for k in parsed]
+            if check_key in (list(parsed_keys) if self.case_sensitive else parsed_keys):
                 passed_checks += 1
-        
+
         # Check types
         for key, expected_type in type_requirements.items():
-            if key in parsed:
-                if isinstance(parsed[key], expected_type):
-                    passed_checks += 1
-        
+            if key in parsed and isinstance(parsed[key], expected_type):
+                passed_checks += 1
+
         return passed_checks / total_checks
 
     def get_evaluator_info(self) -> dict[str, Any]:
@@ -254,10 +252,10 @@ class JsonSchemaEvaluator(BaseEvaluator):
 
 class FieldCoverageEvaluator(BaseEvaluator):
     """Evaluator that checks for required fields or sections in output.
-    
+
     Useful for tasks that should produce structured output with specific
     sections, headers, or labeled fields.
-    
+
     Example:
         >>> evaluator = FieldCoverageEvaluator(
         ...     required_patterns=["Name:", "Age:", "Location:"]
@@ -275,7 +273,7 @@ class FieldCoverageEvaluator(BaseEvaluator):
         strip_whitespace: bool = True,
     ) -> None:
         """Initialize field coverage evaluator.
-        
+
         Args:
             required_patterns: List of patterns/strings that should appear.
             use_regex: If True, treat patterns as regex.
@@ -287,7 +285,7 @@ class FieldCoverageEvaluator(BaseEvaluator):
         self.required_patterns = required_patterns or []
         self.use_regex = use_regex
         self.partial_credit = partial_credit
-        
+
         # Pre-compile regex patterns
         self._compiled_patterns: list[re.Pattern[str]] = []
         if use_regex:
@@ -299,25 +297,25 @@ class FieldCoverageEvaluator(BaseEvaluator):
     def evaluate(
         self,
         predicted: str,
-        expected: str,
+        _expected: str,
         metadata: dict[str, Any] | None = None,
     ) -> float:
         """Check coverage of required patterns.
-        
+
         Args:
             predicted: The LLM's output.
             expected: Unused (patterns defined in constructor).
             metadata: Optional. Can override required_patterns.
-        
+
         Returns:
             1.0 if all patterns found, partial credit if enabled, else 0.0.
         """
         pred = self._preprocess(predicted)
-        
+
         patterns = metadata.get('required_patterns', self.required_patterns) if metadata else self.required_patterns
         if not patterns:
             return 1.0
-        
+
         found = 0
         for i, pattern in enumerate(patterns):
             if self.use_regex and i < len(self._compiled_patterns):
@@ -332,7 +330,7 @@ class FieldCoverageEvaluator(BaseEvaluator):
                 check_pred = pred if self.case_sensitive else pred.lower()
                 if check_pattern in check_pred:
                     found += 1
-        
+
         if self.partial_credit:
             return found / len(patterns)
         else:
@@ -351,10 +349,10 @@ class FieldCoverageEvaluator(BaseEvaluator):
 
 class KeywordPresenceEvaluator(BaseEvaluator):
     """Evaluator that checks for presence of required keywords.
-    
+
     Simpler than FieldCoverageEvaluator - just checks word presence.
     Supports weighted keywords for importance-based scoring.
-    
+
     Example:
         >>> evaluator = KeywordPresenceEvaluator(
         ...     required_keywords=["positive", "sentiment"],
@@ -372,7 +370,7 @@ class KeywordPresenceEvaluator(BaseEvaluator):
         strip_whitespace: bool = True,
     ) -> None:
         """Initialize keyword presence evaluator.
-        
+
         Args:
             required_keywords: Keywords that should appear.
             forbidden_keywords: Keywords that should NOT appear (deduct points).
@@ -401,40 +399,40 @@ class KeywordPresenceEvaluator(BaseEvaluator):
     def evaluate(
         self,
         predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         """Check keyword presence with weighted scoring.
-        
+
         Args:
             predicted: The LLM's output.
             expected: Unused.
             metadata: Optional. Can contain additional_keywords.
-        
+
         Returns:
             Weighted score from 0.0 to 1.0.
         """
         pred = self._preprocess(predicted)
-        
+
         total_weight = 0.0
         achieved_weight = 0.0
-        
+
         # Check required keywords
         for keyword in self.required_keywords:
             weight = self.weights.get(keyword, 1.0)
             total_weight += weight
             if self._check_keyword(pred, keyword):
                 achieved_weight += weight
-        
+
         # Check forbidden keywords (deduct points)
         for keyword in self.forbidden_keywords:
             weight = self.weights.get(keyword, 1.0)
             if self._check_keyword(pred, keyword):
                 achieved_weight -= weight
-        
+
         if total_weight == 0:
             return 1.0
-        
+
         return max(0.0, min(1.0, achieved_weight / total_weight))
 
     def get_evaluator_info(self) -> dict[str, Any]:
@@ -451,12 +449,12 @@ class KeywordPresenceEvaluator(BaseEvaluator):
 
 class LengthConstraintEvaluator(BaseEvaluator):
     """Evaluator that scores based on output length constraints.
-    
+
     Useful for:
     - Penalizing too-short responses (probably incomplete)
     - Penalizing too-long responses (probably verbose/rambling)
     - Rewarding outputs in expected length range
-    
+
     Example:
         >>> evaluator = LengthConstraintEvaluator(
         ...     min_chars=50, max_chars=500,
@@ -477,7 +475,7 @@ class LengthConstraintEvaluator(BaseEvaluator):
         case_sensitive: bool = True,
     ) -> None:
         """Initialize length constraint evaluator.
-        
+
         Args:
             min_chars: Minimum character count.
             max_chars: Maximum character count.
@@ -502,7 +500,7 @@ class LengthConstraintEvaluator(BaseEvaluator):
         """Calculate score for a value within range constraints."""
         if min_val is None and max_val is None:
             return 1.0
-        
+
         if min_val is not None and value < min_val:
             if self.penalty_mode == "binary":
                 return 0.0
@@ -510,7 +508,7 @@ class LengthConstraintEvaluator(BaseEvaluator):
                 return float(max(0.0, value / min_val))
             else:  # soft
                 return float(max(0.0, (value / min_val) ** 0.5))
-        
+
         if max_val is not None and value > max_val:
             if self.penalty_mode == "binary":
                 return 0.0
@@ -521,47 +519,47 @@ class LengthConstraintEvaluator(BaseEvaluator):
             else:  # soft
                 overflow_ratio = value / max_val
                 return float(max(0.0, 1.0 / overflow_ratio))
-        
+
         return 1.0
 
     def evaluate(
         self,
         predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         """Score output based on length constraints.
-        
+
         Args:
             predicted: The LLM's output.
             expected: Unused.
             metadata: Optional. Can override length constraints.
-        
+
         Returns:
             Score from 0.0 to 1.0 based on length compliance.
         """
         if self.strip_whitespace:
             predicted = predicted.strip()
-        
+
         scores = []
-        
+
         # Character constraints
         if self.min_chars is not None or self.max_chars is not None:
             scores.append(self._score_range(len(predicted), self.min_chars, self.max_chars))
-        
+
         # Word constraints
         if self.min_words is not None or self.max_words is not None:
             word_count = len(predicted.split())
             scores.append(self._score_range(word_count, self.min_words, self.max_words))
-        
+
         # Line constraints
         if self.min_lines is not None or self.max_lines is not None:
             line_count = len(predicted.splitlines()) if predicted else 0
             scores.append(self._score_range(line_count, self.min_lines, self.max_lines))
-        
+
         if not scores:
             return 1.0
-        
+
         # Return minimum score (most restrictive constraint)
         return min(scores)
 
@@ -582,14 +580,14 @@ class LengthConstraintEvaluator(BaseEvaluator):
 
 class OutputShapeEvaluator(BaseEvaluator):
     """Evaluator that checks structural shape of output.
-    
+
     Validates output structure without checking exact content.
     Useful for checking format compliance like:
     - Starts with specific text
     - Ends with specific text
     - Contains markers/delimiters
     - Has expected section structure
-    
+
     Example:
         >>> evaluator = OutputShapeEvaluator(
         ...     starts_with="Answer:",
@@ -609,7 +607,7 @@ class OutputShapeEvaluator(BaseEvaluator):
         strip_whitespace: bool = True,
     ) -> None:
         """Initialize output shape evaluator.
-        
+
         Args:
             starts_with: Required prefix.
             ends_with: Required suffix.
@@ -629,41 +627,41 @@ class OutputShapeEvaluator(BaseEvaluator):
     def evaluate(
         self,
         predicted: str,
-        expected: str,
-        metadata: dict[str, Any] | None = None,
+        _expected: str,
+        _metadata: dict[str, Any] | None = None,
     ) -> float:
         """Check output shape compliance.
-        
+
         Args:
             predicted: The LLM's output.
             expected: Unused.
             metadata: Optional. Can override shape constraints.
-        
+
         Returns:
             Score from 0.0 to 1.0 based on shape compliance.
         """
         pred = self._preprocess(predicted)
-        
+
         checks = []
-        
+
         # Check prefix
         if self.starts_with:
             prefix = self.starts_with if self.case_sensitive else self.starts_with.lower()
             check_pred = pred if self.case_sensitive else pred.lower()
             checks.append(check_pred.startswith(prefix))
-        
+
         # Check suffix
         if self.ends_with:
             suffix = self.ends_with if self.case_sensitive else self.ends_with.lower()
             check_pred = pred if self.case_sensitive else pred.lower()
             checks.append(check_pred.endswith(suffix))
-        
+
         # Check contains_all
         for pattern in self.contains_all:
             check_pattern = pattern if self.case_sensitive else pattern.lower()
             check_pred = pred if self.case_sensitive else pred.lower()
             checks.append(check_pattern in check_pred)
-        
+
         # Check contains_any
         if self.contains_any:
             found_any = False
@@ -674,16 +672,16 @@ class OutputShapeEvaluator(BaseEvaluator):
                     found_any = True
                     break
             checks.append(found_any)
-        
+
         # Check not_contains
         for pattern in self.not_contains:
             check_pattern = pattern if self.case_sensitive else pattern.lower()
             check_pred = pred if self.case_sensitive else pred.lower()
             checks.append(check_pattern not in check_pred)
-        
+
         if not checks:
             return 1.0
-        
+
         # Return fraction of checks passed
         return sum(checks) / len(checks)
 

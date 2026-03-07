@@ -1,0 +1,27 @@
+optimization:
+  profile: slow-local
+  max_generations: 6
+  population_size: 4
+  patience: 4
+  max_concurrency: 1
+  seed: 42
+
+strategy:
+  evolutionary:
+    mutation_rate: 0.3
+    crossover_rate: 0.7
+    tournament_size: 3
+    elitism: 2
+    adaptive_mutation_weights: true
+    use_semantic_mutations: false
+    use_diversity_control: false
+    use_adaptive_schedule: false
+    enable_ablation_tracking: false
+
+llm:
+  provider: openai_compat
+  base_url: http://127.0.0.1:5000/v1
+  api_key: local
+
+output:
+  directory: ./output/mvp3_validation/baseline

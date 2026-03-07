@@ -51,7 +51,7 @@ async def test_connection(base_url: str, model: str | None = None) -> bool:
     Returns:
         True if connection successful.
     """
-    from promptfoundry.llm import OpenAICompatClient, LLMConfig
+    from promptfoundry.llm import LLMConfig, OpenAICompatClient
 
     config = LLMConfig(base_url=base_url)
     if model:

@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass, field
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
@@ -53,6 +54,7 @@ class EvolutionaryConfig(StrategyConfig):
     use_semantic_mutations: bool = True
     use_diversity_control: bool = True
     use_adaptive_schedule: bool = False  # Off by default for backward compatibility
+    schedule_type: str = "adaptive"
     enable_ablation_tracking: bool = True
     min_diversity_ratio: float = 0.7
     crowding_penalty: float = 0.1
@@ -104,6 +106,12 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         # MVP 3: Ablation tracker
         self._ablation_tracker: Any = None  # Lazy imported
 
+        # MVP 3: Adaptive schedule
+        self._mutation_schedule: Any = None  # Lazy imported
+        self._schedule_state: Any = None  # Lazy imported
+        self._effective_mutation_rate = self.evo_config.mutation_rate
+        self._effective_crossover_rate = self.evo_config.crossover_rate
+
     def _ensure_mvp3_components(self) -> None:
         """Lazy-load MVP 3 components to avoid circular imports."""
         if self.evo_config.use_semantic_mutations and self._semantic_library is None:
@@ -124,6 +132,25 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             from promptfoundry.strategies.ablation import AblationTracker
 
             self._ablation_tracker = AblationTracker()
+
+        if self.evo_config.use_adaptive_schedule and self._mutation_schedule is None:
+            from promptfoundry.strategies.schedules import MutationScheduleState, create_schedule
+
+            schedule_type = (
+                "operator" if self.evo_config.adaptive_mutation_weights else self.evo_config.schedule_type
+            )
+            self._mutation_schedule = create_schedule(
+                schedule_type=schedule_type,
+                base_mutation_rate=self.evo_config.mutation_rate,
+                crossover_rate=self.evo_config.crossover_rate,
+                operator_learning_rate=self.evo_config.weight_learning_rate,
+                min_operator_weight=self.evo_config.min_operator_weight,
+            )
+            self._schedule_state = MutationScheduleState(
+                max_generations=self.evo_config.max_generations,
+                current_mutation_rate=self.evo_config.mutation_rate,
+                current_crossover_rate=self.evo_config.crossover_rate,
+            )
 
     def initialize(
         self,
@@ -158,6 +185,19 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         # MVP 3: Reset diversity controller
         if self._diversity_controller:
             self._diversity_controller.reset()
+
+        if self._schedule_state is not None:
+            self._schedule_state.generation = 0
+            self._schedule_state.max_generations = self.evo_config.max_generations
+            self._schedule_state.current_mutation_rate = self.evo_config.mutation_rate
+            self._schedule_state.current_crossover_rate = self.evo_config.crossover_rate
+            self._schedule_state.stall_count = 0
+            self._schedule_state.best_fitness = 0.0
+            self._schedule_state.avg_fitness = 0.0
+            self._schedule_state.diversity_score = 1.0
+            self._schedule_state.operator_weights = {}
+            self._effective_mutation_rate = self.evo_config.mutation_rate
+            self._effective_crossover_rate = self.evo_config.crossover_rate
 
         # Include the original seed
         seed_individual = Individual(
@@ -233,14 +273,14 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
         for elite in evaluated[:effective_elitism]:
             seen_texts.add(elite.prompt.text)
-            new_individuals.append(
-                Individual(
-                    prompt=self._copy_prompt(elite.prompt),
-                    fitness=None,  # Will be re-evaluated
-                    generation=next_gen,
-                    parent_ids=[elite.id],
-                )
+            elite_individual = Individual(
+                prompt=self._copy_prompt(elite.prompt),
+                fitness=None,  # Will be re-evaluated
+                generation=next_gen,
+                parent_ids=[elite.id],
             )
+            new_individuals.append(elite_individual)
+            self._register_lineage_node(elite_individual, next_gen)
 
         # Generate offspring
         while len(new_individuals) < len(population):
@@ -249,19 +289,19 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             parent2 = self._tournament_select(evaluated)
 
             # Crossover
-            if random.random() < self.evo_config.crossover_rate:
+            if random.random() < self._effective_crossover_rate:
                 child1_prompt, child2_prompt = self._crossover(parent1.prompt, parent2.prompt)
             else:
                 child1_prompt = self._copy_prompt(parent1.prompt)
                 child2_prompt = self._copy_prompt(parent2.prompt)
 
             # Mutation
-            if random.random() < self.evo_config.mutation_rate:
+            if random.random() < self._effective_mutation_rate:
                 child1_prompt = self._mutate_prompt(
                     child1_prompt,
                     parent_baseline_fitness=max(parent1.fitness or 0.0, parent2.fitness or 0.0),
                 )
-            if random.random() < self.evo_config.mutation_rate:
+            if random.random() < self._effective_mutation_rate:
                 child2_prompt = self._mutate_prompt(
                     child2_prompt,
                     parent_baseline_fitness=max(parent1.fitness or 0.0, parent2.fitness or 0.0),
@@ -272,22 +312,22 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
             # Add children
             seen_texts.add(child1_prompt.text)
-            new_individuals.append(
-                Individual(
-                    prompt=child1_prompt,
+            child1_individual = Individual(
+                prompt=child1_prompt,
+                generation=next_gen,
+                parent_ids=[parent1.id, parent2.id],
+            )
+            new_individuals.append(child1_individual)
+            self._register_lineage_node(child1_individual, next_gen)
+            if len(new_individuals) < len(population):
+                seen_texts.add(child2_prompt.text)
+                child2_individual = Individual(
+                    prompt=child2_prompt,
                     generation=next_gen,
                     parent_ids=[parent1.id, parent2.id],
                 )
-            )
-            if len(new_individuals) < len(population):
-                seen_texts.add(child2_prompt.text)
-                new_individuals.append(
-                    Individual(
-                        prompt=child2_prompt,
-                        generation=next_gen,
-                        parent_ids=[parent1.id, parent2.id],
-                    )
-                )
+                new_individuals.append(child2_individual)
+                self._register_lineage_node(child2_individual, next_gen)
 
         return Population(individuals=new_individuals, generation=next_gen)
 
@@ -378,6 +418,23 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 population
             ).to_dict()
 
+        if self._mutation_schedule and self._schedule_state is not None:
+            if self._last_diversity_metrics:
+                self._schedule_state.diversity_score = float(
+                    self._last_diversity_metrics.get("unique_ratio", 1.0)
+                )
+            self._schedule_state = self._mutation_schedule.update(self._schedule_state, fitness_scores)
+            self._effective_mutation_rate = self._mutation_schedule.get_mutation_rate(
+                self._schedule_state
+            )
+            self._effective_crossover_rate = self._mutation_schedule.get_crossover_rate(
+                self._schedule_state
+            )
+            if self._schedule_state.operator_weights:
+                for name, weight in self._schedule_state.operator_weights.items():
+                    if name in self._operator_current_weights:
+                        self._operator_current_weights[name] = weight
+
         self._last_generation_summary = {}
         for operator_name, attempts in generation_attempts.items():
             wins = generation_wins.get(operator_name, 0)
@@ -390,6 +447,14 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                     operator_name,
                     self._operator_base_weights.get(operator_name, 1.0),
                 ),
+            }
+
+        if self._schedule_state is not None:
+            self._last_generation_summary["__schedule__"] = {
+                "mutation_rate": self._effective_mutation_rate,
+                "crossover_rate": self._effective_crossover_rate,
+                "stall_count": float(self._schedule_state.stall_count),
+                "diversity_score": float(self._schedule_state.diversity_score),
             }
 
     def get_operator_stats(self) -> dict[str, dict[str, float]]:
@@ -427,6 +492,15 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             Dictionary with diversity metrics or empty if not tracking.
         """
         return self._last_diversity_metrics.copy()
+
+    def get_schedule_state(self) -> dict[str, Any]:
+        """Return current adaptive schedule state."""
+        if self._schedule_state is None:
+            return {}
+        state: dict[str, Any] = self._schedule_state.to_dict()
+        state["effective_mutation_rate"] = self._effective_mutation_rate
+        state["effective_crossover_rate"] = self._effective_crossover_rate
+        return state
 
     def get_detected_task_type(self) -> str | None:
         """Return the detected task type from the seed prompt.
@@ -522,6 +596,9 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             "last_generation_summary": {
                 name: stats.copy() for name, stats in self._last_generation_summary.items()
             },
+            "effective_mutation_rate": self._effective_mutation_rate,
+            "effective_crossover_rate": self._effective_crossover_rate,
+            "schedule_state": self._schedule_state.to_dict() if self._schedule_state else None,
         }
 
     def load_checkpoint_state(self, state: dict[str, Any]) -> None:
@@ -542,6 +619,36 @@ class GeneticAlgorithmStrategy(BaseStrategy):
             name: {key: float(value) for key, value in stats.items()}
             for name, stats in state.get("last_generation_summary", {}).items()
         }
+        self._effective_mutation_rate = float(
+            state.get("effective_mutation_rate", self.evo_config.mutation_rate)
+        )
+        self._effective_crossover_rate = float(
+            state.get("effective_crossover_rate", self.evo_config.crossover_rate)
+        )
+        schedule_state = state.get("schedule_state")
+        if schedule_state and self.evo_config.use_adaptive_schedule:
+            self._ensure_mvp3_components()
+            if self._schedule_state is not None:
+                self._schedule_state.generation = int(schedule_state.get("generation", 0))
+                self._schedule_state.max_generations = int(
+                    schedule_state.get("max_generations", self.evo_config.max_generations)
+                )
+                self._schedule_state.current_mutation_rate = float(
+                    schedule_state.get("mutation_rate", self.evo_config.mutation_rate)
+                )
+                self._schedule_state.current_crossover_rate = float(
+                    schedule_state.get("crossover_rate", self.evo_config.crossover_rate)
+                )
+                self._schedule_state.stall_count = int(schedule_state.get("stall_count", 0))
+                self._schedule_state.best_fitness = float(schedule_state.get("best_fitness", 0.0))
+                self._schedule_state.avg_fitness = float(schedule_state.get("avg_fitness", 0.0))
+                self._schedule_state.diversity_score = float(
+                    schedule_state.get("diversity_score", 1.0)
+                )
+                self._schedule_state.operator_weights = {
+                    key: float(value)
+                    for key, value in schedule_state.get("operator_weights", {}).items()
+                }
 
     def _tournament_select(self, evaluated: list[Individual]) -> Individual:
         """Select an individual using tournament selection.
@@ -725,6 +832,19 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                     "best_delta": 0.0,
                 },
             )
+
+    def _register_lineage_node(self, individual: Individual, generation: int) -> None:
+        """Register an individual with the diversity controller when lineage is enabled."""
+        if not self._diversity_controller:
+            return
+
+        self._diversity_controller.register_prompt(
+            prompt_id=individual.id,
+            text=individual.prompt.text,
+            generation=generation,
+            parent_ids=individual.parent_ids,
+            mutation_operator=individual.prompt.metadata.get("mutation_operator"),
+        )
 
     def _recompute_operator_weights(self) -> None:
         """Adjust operator weights using observed win rate and score deltas."""

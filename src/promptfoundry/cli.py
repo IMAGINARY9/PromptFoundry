@@ -27,11 +27,8 @@ from rich.progress import (
 from rich.table import Table
 
 from promptfoundry.core import (
-    BenchmarkGate,
     BenchmarkSummary,
-    BenchmarkThreshold,
     Example,
-    GateResult,
     OptimizationResult,
     Optimizer,
     OptimizerConfig,
@@ -324,6 +321,16 @@ def optimize(
         crossover_rate=strategy_settings.get("crossover_rate", 0.7),
         tournament_size=strategy_settings.get("tournament_size", 3),
         elitism=strategy_settings.get("elitism", 2),
+        adaptive_mutation_weights=strategy_settings.get("adaptive_mutation_weights", True),
+        min_operator_weight=strategy_settings.get("min_operator_weight", 0.4),
+        weight_learning_rate=strategy_settings.get("weight_learning_rate", 0.8),
+        use_semantic_mutations=strategy_settings.get("use_semantic_mutations", True),
+        use_diversity_control=strategy_settings.get("use_diversity_control", True),
+        use_adaptive_schedule=strategy_settings.get("use_adaptive_schedule", False),
+        schedule_type=strategy_settings.get("schedule_type", "adaptive"),
+        enable_ablation_tracking=strategy_settings.get("enable_ablation_tracking", True),
+        min_diversity_ratio=strategy_settings.get("min_diversity_ratio", 0.7),
+        crowding_penalty=strategy_settings.get("crowding_penalty", 0.1),
     )
     optimization_strategy = GeneticAlgorithmStrategy(strategy_config)
     console.print("[green]✓[/green] Using strategy: evolutionary")
@@ -473,6 +480,26 @@ def optimize(
         "best_prompt": best_prompt.text,
         "best_fitness": best_fitness,
         "generations": total_generations,
+        "evolutionary_config": {
+            "mutation_rate": strategy_config.mutation_rate,
+            "crossover_rate": strategy_config.crossover_rate,
+            "tournament_size": strategy_config.tournament_size,
+            "elitism": strategy_config.elitism,
+            "adaptive_mutation_weights": strategy_config.adaptive_mutation_weights,
+            "use_semantic_mutations": strategy_config.use_semantic_mutations,
+            "use_diversity_control": strategy_config.use_diversity_control,
+            "use_adaptive_schedule": strategy_config.use_adaptive_schedule,
+            "schedule_type": strategy_config.schedule_type,
+            "enable_ablation_tracking": strategy_config.enable_ablation_tracking,
+            "min_diversity_ratio": strategy_config.min_diversity_ratio,
+            "crowding_penalty": strategy_config.crowding_penalty,
+        },
+        "detected_task_type": optimization_strategy.get_detected_task_type(),
+        "detected_output_mode": optimization_strategy.get_detected_output_mode(),
+        "diversity_metrics": optimization_strategy.get_diversity_metrics(),
+        "schedule_state": optimization_strategy.get_schedule_state(),
+        "ablation_result": optimization_strategy.get_ablation_result(),
+        "ablation_summary": optimization_strategy.get_ablation_summary(),
         **result.to_dict(),
     }
 
@@ -1025,7 +1052,7 @@ def list_evaluators() -> None:
         "Fuzzy string matching with Levenshtein distance",
         "[blue]Accuracy[/blue]",
     )
-    
+
     # Format evaluators
     table.add_row(
         "regex",
@@ -1037,7 +1064,7 @@ def list_evaluators() -> None:
         "Check if output contains expected text",
         "[magenta]Format[/magenta]",
     )
-    
+
     # Cheap proxy metrics (MVP 2)
     table.add_row(
         "json_parse",
@@ -1069,7 +1096,7 @@ def list_evaluators() -> None:
         "Validate structural shape (prefix, suffix, markers)",
         "[green]Proxy[/green]",
     )
-    
+
     # Custom evaluators
     table.add_row(
         "custom",

@@ -8,17 +8,16 @@ from __future__ import annotations
 import pytest
 
 from promptfoundry.core.benchmark_gate import (
+    DEFAULT_BENCHMARK_SUITE,
     BenchmarkGate,
     BenchmarkTask,
     BenchmarkTaskType,
     BenchmarkThreshold,
-    DEFAULT_BENCHMARK_SUITE,
     GateResult,
     create_custom_gate,
     get_default_suite,
 )
 from promptfoundry.core.diagnostics import RunDiagnostics, RunStatus
-
 
 # =============================================================================
 # BenchmarkThreshold Tests
@@ -139,7 +138,7 @@ class TestGateResult:
             status=RunStatus.SUCCESS,
             details={"runs": 5},
         )
-        
+
         assert "task1" in result.task_results
         assert result.task_results["task1"]["passed"] is True
         assert result.task_results["task1"]["improvement"] == 0.1
@@ -153,7 +152,7 @@ class TestGateResult:
             warnings=["warning1"],
         )
         d = result.to_dict()
-        
+
         assert d["passed"] is True
         assert "failure1" in d["failures"]
         assert "warning1" in d["warnings"]
@@ -209,9 +208,9 @@ class TestBenchmarkGate:
             status=RunStatus.SUCCESS,
             elapsed_time_seconds=10.0,
         )
-        
+
         passed, failures = gate.check_single_run(diag)
-        
+
         assert passed is True
         assert len(failures) == 0
 
@@ -219,15 +218,15 @@ class TestBenchmarkGate:
         """Test checking a run that fails improvement threshold."""
         threshold = BenchmarkThreshold(min_improvement=0.1)
         gate = BenchmarkGate(global_threshold=threshold)
-        
+
         diag = RunDiagnostics(
             task_name="test",
             improvement=0.02,
             status=RunStatus.SUCCESS,
         )
-        
+
         passed, failures = gate.check_single_run(diag)
-        
+
         assert passed is False
         assert any("below threshold" in f for f in failures)
 
@@ -239,9 +238,9 @@ class TestBenchmarkGate:
             improvement=0.0,
             status=RunStatus.NO_SIGNAL,
         )
-        
+
         passed, failures = gate.check_single_run(diag)
-        
+
         assert passed is False
         assert any("no signal" in f.lower() for f in failures)
 
@@ -249,16 +248,16 @@ class TestBenchmarkGate:
         """Test checking a run that exceeds runtime."""
         threshold = BenchmarkThreshold(max_runtime_seconds=10.0)
         gate = BenchmarkGate(global_threshold=threshold)
-        
+
         diag = RunDiagnostics(
             task_name="test",
             improvement=0.2,
             status=RunStatus.SUCCESS,
             elapsed_time_seconds=100.0,
         )
-        
+
         passed, failures = gate.check_single_run(diag)
-        
+
         assert passed is False
         assert any("exceeds" in f for f in failures)
 
@@ -266,7 +265,7 @@ class TestBenchmarkGate:
         """Test checking empty results."""
         gate = BenchmarkGate()
         result = gate.check_results([])
-        
+
         assert result.passed is False
         assert "No benchmark results" in result.failures[0]
 
@@ -278,7 +277,7 @@ class TestBenchmarkGate:
             max_no_signal_rate=0.5,
         )
         gate = BenchmarkGate(global_threshold=threshold)
-        
+
         diagnostics = [
             RunDiagnostics(
                 task_name="task1",
@@ -293,9 +292,9 @@ class TestBenchmarkGate:
                 status=RunStatus.SUCCESS,
             ),
         ]
-        
+
         result = gate.check_results(diagnostics)
-        
+
         assert result.passed is True
         assert result.summary["total_runs"] == 2
         assert result.summary["successful_runs"] == 2
@@ -308,15 +307,15 @@ class TestBenchmarkGate:
             max_no_signal_rate=0.1,
         )
         gate = BenchmarkGate(global_threshold=threshold)
-        
+
         diagnostics = [
             RunDiagnostics(task_name="task1", improvement=0.1, status=RunStatus.SUCCESS),
             RunDiagnostics(task_name="task1", improvement=0.0, status=RunStatus.NO_SIGNAL),
             RunDiagnostics(task_name="task1", improvement=0.0, status=RunStatus.NO_SIGNAL),
         ]
-        
+
         result = gate.check_results(diagnostics)
-        
+
         # 1/3 = 33% success rate < 80% required
         assert result.passed is False
         assert any("Success rate" in f for f in result.failures)
@@ -329,14 +328,14 @@ class TestBenchmarkGate:
             max_no_signal_rate=0.2,  # Low tolerance
         )
         gate = BenchmarkGate(global_threshold=threshold)
-        
+
         diagnostics = [
             RunDiagnostics(task_name="task1", improvement=0.1, status=RunStatus.SUCCESS),
             RunDiagnostics(task_name="task1", improvement=0.0, status=RunStatus.NO_SIGNAL),
         ]
-        
+
         result = gate.check_results(diagnostics)
-        
+
         # 1/2 = 50% no-signal rate > 20% max
         assert result.passed is False
         assert any("No-signal rate" in f for f in result.failures)
@@ -345,14 +344,14 @@ class TestBenchmarkGate:
         """Test checking results from multiple tasks."""
         threshold = BenchmarkThreshold(min_improvement=0.05)
         gate = BenchmarkGate(global_threshold=threshold)
-        
+
         diagnostics = [
             RunDiagnostics(task_name="task1", improvement=0.1, status=RunStatus.SUCCESS),
             RunDiagnostics(task_name="task2", improvement=0.08, status=RunStatus.SUCCESS),
         ]
-        
+
         result = gate.check_results(diagnostics)
-        
+
         assert result.summary["tasks_checked"] == 2
         assert "task1" in result.task_results
         assert "task2" in result.task_results
@@ -360,13 +359,13 @@ class TestBenchmarkGate:
     def test_check_results_warns_incomplete_suite(self) -> None:
         """Test warning when not all suite tasks are run."""
         gate = BenchmarkGate()  # Has 3 default tasks
-        
+
         diagnostics = [
             RunDiagnostics(task_name="sentiment_classification", improvement=0.2, status=RunStatus.SUCCESS),
         ]
-        
+
         result = gate.check_results(diagnostics)
-        
+
         # Should warn about missing tasks
         assert any("benchmark tasks were run" in w for w in result.warnings)
 
@@ -377,10 +376,10 @@ class TestBenchmarkGate:
             summary={"total_runs": 5, "successful_runs": 5, "tasks_checked": 2, "tasks_passed": 2},
             task_results={"task1": {"passed": True, "improvement": 0.1}},
         )
-        
+
         gate = BenchmarkGate()
         report = gate.format_report(result)
-        
+
         assert "PASSED" in report
         assert "task1" in report
 
@@ -391,10 +390,10 @@ class TestBenchmarkGate:
             failures=["[task1] Success rate 30% below minimum 60%"],
             warnings=["Only 1 of 3 tasks run"],
         )
-        
+
         gate = BenchmarkGate()
         report = gate.format_report(result)
-        
+
         assert "FAILED" in report
         assert "Failures" in report
         assert "Success rate" in report
@@ -423,14 +422,14 @@ class TestFactoryFunctions:
             min_success_rate=0.8,
             max_no_signal_rate=0.1,
         )
-        
+
         # Verify the gate works with custom thresholds
         diag = RunDiagnostics(
             task_name="test",
             improvement=0.05,  # Below 0.1 threshold
             status=RunStatus.SUCCESS,
         )
-        
+
         passed, failures = gate.check_single_run(diag)
         assert passed is False
 
@@ -451,7 +450,7 @@ class TestIntegration:
             min_success_rate=0.6,
             max_no_signal_rate=0.4,
         )
-        
+
         # Simulate benchmark results
         diagnostics = [
             # Task 1: 3 runs, 2 success, 1 no-signal
@@ -492,16 +491,16 @@ class TestIntegration:
                 elapsed_time_seconds=22.0,
             ),
         ]
-        
+
         # Check results
         result = gate.check_results(diagnostics)
-        
+
         # Should pass overall
         assert result.passed is True
         assert result.summary["total_runs"] == 5
         assert result.summary["successful_runs"] == 4
         assert result.summary["tasks_checked"] == 2
-        
+
         # Generate report
         report = gate.format_report(result)
         assert "PASSED" in report
@@ -523,9 +522,9 @@ class TestIntegration:
             task_file="hard.yaml",
             threshold=BenchmarkThreshold(min_improvement=0.15),  # High bar
         )
-        
+
         gate = BenchmarkGate(suite=[easy_task, hard_task])
-        
+
         # Diagnostic that passes easy but fails hard
         diag_easy = RunDiagnostics(
             task_name="easy",
@@ -537,11 +536,11 @@ class TestIntegration:
             improvement=0.05,  # Fails 0.15 threshold
             status=RunStatus.SUCCESS,
         )
-        
+
         # Check individually
         easy_passed, _ = gate.check_single_run(diag_easy, easy_task)
         hard_passed, hard_failures = gate.check_single_run(diag_hard, hard_task)
-        
+
         assert easy_passed is True
         assert hard_passed is False
         assert any("threshold" in f for f in hard_failures)

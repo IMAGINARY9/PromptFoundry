@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from promptfoundry.core.prompt import Prompt
-from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.history import OptimizationHistory
+from promptfoundry.core.population import Individual, Population
+from promptfoundry.core.prompt import Prompt
 from promptfoundry.strategies.evolutionary import (
-    GeneticAlgorithmStrategy,
     EvolutionaryConfig,
+    GeneticAlgorithmStrategy,
 )
 
 
@@ -211,6 +211,77 @@ class TestGeneticAlgorithmStrategy:
         after = strategy.get_operator_stats()["add_answer_only_directive"]["current_weight"]
 
         assert after > before
+
+    def test_adaptive_schedule_updates_runtime_rates(
+        self, seed_prompt: Prompt
+    ) -> None:
+        """Adaptive schedule should update effective runtime rates after feedback."""
+        strategy = GeneticAlgorithmStrategy(
+            EvolutionaryConfig(
+                population_size=4,
+                mutation_rate=0.3,
+                crossover_rate=0.7,
+                tournament_size=2,
+                elitism=1,
+                seed=42,
+                use_adaptive_schedule=True,
+                use_diversity_control=True,
+            )
+        )
+
+        population = strategy.initialize(seed_prompt, population_size=4)
+        strategy.record_generation_feedback(population, [0.4, 0.4, 0.4, 0.4])
+
+        state = strategy.get_schedule_state()
+
+        assert state["generation"] == 1
+        assert state["effective_mutation_rate"] >= 0.3
+        assert "diversity_score" in state
+
+    def test_checkpoint_state_preserves_schedule_state(self, seed_prompt: Prompt) -> None:
+        """Checkpoint payload should retain adaptive schedule progress."""
+        strategy = GeneticAlgorithmStrategy(
+            EvolutionaryConfig(
+                population_size=4,
+                mutation_rate=0.3,
+                crossover_rate=0.7,
+                tournament_size=2,
+                elitism=1,
+                seed=42,
+                use_adaptive_schedule=True,
+            )
+        )
+
+        population = strategy.initialize(seed_prompt, population_size=4)
+        strategy.record_generation_feedback(population, [0.2, 0.2, 0.2, 0.2])
+
+        checkpoint_state = strategy.get_checkpoint_state()
+
+        assert checkpoint_state["schedule_state"] is not None
+        assert checkpoint_state["effective_mutation_rate"] >= 0.3
+
+    def test_lineage_report_tracks_evolved_offspring(self, seed_prompt: Prompt) -> None:
+        """Lineage tracking should register offspring created after initialization."""
+        strategy = GeneticAlgorithmStrategy(
+            EvolutionaryConfig(
+                population_size=4,
+                mutation_rate=1.0,
+                crossover_rate=0.0,
+                tournament_size=2,
+                elitism=1,
+                seed=42,
+                use_diversity_control=True,
+            )
+        )
+
+        population = strategy.initialize(seed_prompt, population_size=4)
+        evolved = strategy.evolve(population, [0.9, 0.2, 0.1, 0.05])
+
+        child = next(individual for individual in evolved if individual.parent_ids)
+        report = strategy.get_lineage_report(child)
+
+        assert report["generation"] == evolved.generation
+        assert report["best_prompt_id"] == child.id
 
     def test_structured_layout_mutation_preserves_placeholder(
         self, strategy: GeneticAlgorithmStrategy

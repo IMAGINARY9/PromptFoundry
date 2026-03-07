@@ -68,6 +68,7 @@ class OptimizationResult:
     total_cache_hits: int = 0
     total_example_evaluations: int = 0
     operator_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    lineage_report: dict[str, Any] | None = None
     # record each evaluation interaction for post‑mortem
     interactions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -102,6 +103,7 @@ class OptimizationResult:
             "total_cache_hits": self.total_cache_hits,
             "total_example_evaluations": self.total_example_evaluations,
             "operator_stats": self.operator_stats,
+            "lineage_report": self.lineage_report,
             "seed_fitness": seed_fitness,
             "history": self.history.to_dict(),
             "interactions": self.interactions,

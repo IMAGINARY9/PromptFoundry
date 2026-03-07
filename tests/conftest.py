@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
-from unittest.mock import AsyncMock
+from typing import Any
 
 import pytest
 
+from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt, PromptTemplate
 from promptfoundry.core.task import Example, Task
-from promptfoundry.core.population import Individual, Population
 from promptfoundry.llm.base import BaseLLMClient
-
 
 # =============================================================================
 # Fixtures: Core Domain

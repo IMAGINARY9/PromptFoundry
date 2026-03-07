@@ -15,13 +15,15 @@ import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from promptfoundry.core.history import OptimizationHistory, OptimizationResult
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
-from promptfoundry.core.protocols import Evaluator, LLMClient, OptimizationStrategy
-from promptfoundry.core.task import Example, Task
+
+if TYPE_CHECKING:
+    from promptfoundry.core.protocols import Evaluator, LLMClient, OptimizationStrategy
+    from promptfoundry.core.task import Example, Task
 
 
 class ProgressCallback(Protocol):
@@ -247,6 +249,7 @@ class Optimizer:
         self._current_population = population
 
         # Main optimization loop
+        best_lineage_report: dict[str, Any] | None = None
         while not self._should_terminate():
             # Track generation timing
             gen_start_time = time.time()
@@ -271,7 +274,7 @@ class Optimizer:
             total_evaluations_this_gen = len(population) * num_examples
             cache_hits_this_gen = total_evaluations_this_gen - (cache_size_after - cache_size_before)
             llm_calls_this_gen = cache_size_after - cache_size_before
-            
+
             # Update state totals
             self._state.total_evaluations += len(population)
             self._state.total_example_evaluations += total_evaluations_this_gen
@@ -302,7 +305,9 @@ class Optimizer:
             avg_score = sum(fitness_scores) / len(fitness_scores)
 
             # Update state
-            self._state.update_best(gen_best.prompt, gen_best_score)
+            is_new_best = self._state.update_best(gen_best.prompt, gen_best_score)
+            if is_new_best and hasattr(self.strategy, "get_lineage_report"):
+                best_lineage_report = self.strategy.get_lineage_report(evaluated_pop[gen_best_idx])
 
             # Record history with timing metadata
             metadata: dict[str, Any] = {
@@ -319,6 +324,8 @@ class Optimizer:
                 metadata["operator_stats"] = operator_stats
             if generation_operator_summary:
                 metadata["generation_operator_summary"] = generation_operator_summary
+            if is_new_best and best_lineage_report:
+                metadata["lineage_report"] = best_lineage_report
 
             self._history.add_generation(
                 evaluated_pop,
@@ -334,7 +341,12 @@ class Optimizer:
             )
 
             # Evolve to next generation
-            population = self.strategy.evolve(population, fitness_scores)
+            selection_scores = fitness_scores
+            if hasattr(self.strategy, "apply_crowding_penalty"):
+                selection_scores = self.strategy.apply_crowding_penalty(population, fitness_scores)
+                if selection_scores != fitness_scores:
+                    metadata["selection_fitness_scores"] = selection_scores
+            population = self.strategy.evolve(population, selection_scores)
             self._state.current_generation += 1
             self._current_population = population
 
@@ -357,6 +369,7 @@ class Optimizer:
             total_cache_hits=self._state.total_cache_hits,
             total_example_evaluations=self._state.total_example_evaluations,
             operator_stats=operator_stats,
+            lineage_report=best_lineage_report,
             interactions=self._state.interactions,
         )
 

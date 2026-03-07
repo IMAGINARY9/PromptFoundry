@@ -56,10 +56,10 @@ def load_task(task_path: Path) -> tuple[Task, str, dict]:
         system_prompt=data.get("system_prompt"),
         metadata=data.get("metadata", {}),
     )
-    
+
     evaluator_type = data.get("evaluator", "exact_match")
     evaluator_config = data.get("evaluator_config", {})
-    
+
     return task, evaluator_type, evaluator_config
 
 
@@ -70,10 +70,10 @@ def get_evaluator(evaluator_type: str, config: dict):
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
         "regex": lambda: RegexEvaluator(**config),
     }
-    
+
     if evaluator_type not in evaluators:
         raise ValueError(f"Unknown evaluator type: {evaluator_type}")
-    
+
     return evaluators[evaluator_type]()
 
 
@@ -92,16 +92,16 @@ async def run_benchmark(
     print(f"\n{'='*60}")
     print(f"Running benchmark: {task_path.name}")
     print(f"{'='*60}")
-    
+
     # Load task
     task, evaluator_type, evaluator_config = load_task(task_path)
     print(f"Task: {task.name} ({len(task.examples)} examples)")
     print(f"Evaluator: {evaluator_type}")
-    
+
     # Create components
     llm_config = LLMConfig(base_url=llm_url)
     llm_client = OpenAICompatClient(llm_config)
-    
+
     # Check LLM connection
     print("Checking LLM connection...")
     healthy = await llm_client.health_check()
@@ -110,40 +110,40 @@ async def run_benchmark(
         await llm_client.close()
         return {"error": "LLM connection failed"}
     print("LLM connected!")
-    
+
     evaluator = get_evaluator(evaluator_type, evaluator_config)
     strategy = GeneticAlgorithmStrategy(
         EvolutionaryConfig(population_size=population_size)
     )
-    
+
     optimizer_config = OptimizerConfig(
         max_generations=max_generations,
         population_size=population_size,
         patience=5,
     )
-    
+
     optimizer = Optimizer(
         strategy=strategy,
         evaluator=evaluator,
         llm_client=llm_client,
         config=optimizer_config,
     )
-    
+
     seed = Prompt(text=seed_prompt)
-    
+
     # Run optimization
     print(f"\nRunning optimization for {max_generations} generations...")
     start_time = time.time()
-    
+
     result = await optimizer.optimize(
         seed_prompt=seed,
         task=task,
     )
-    
+
     elapsed = time.time() - start_time
-    
+
     await llm_client.close()
-    
+
     # Collect results
     benchmark_result = {
         "task": task.name,
@@ -159,15 +159,15 @@ async def run_benchmark(
         "population_size": population_size,
         "timestamp": datetime.now().isoformat(),
     }
-    
-    print(f"\nResults:")
+
+    print("\nResults:")
     print(f"  Best score: {result.best_score:.4f}")
     print(f"  Generations: {result.total_generations}")
     print(f"  Evaluations: {result.total_evaluations}")
     print(f"  Converged at: gen {result.convergence_generation}")
     print(f"  Time: {elapsed:.2f}s")
     print(f"\nBest prompt:\n  {result.best_prompt.text[:100]}...")
-    
+
     return benchmark_result
 
 
@@ -179,14 +179,14 @@ async def run_all_benchmarks(
 ) -> None:
     """Run benchmarks on all task files in a directory."""
     task_files = list(task_dir.glob("*.yaml"))
-    
+
     print(f"Found {len(task_files)} task files")
-    
+
     results = []
     for task_file in task_files:
         task_name = task_file.stem
         seed = seed_prompts.get(task_name, "{input}")
-        
+
         try:
             result = await run_benchmark(task_file, seed, **kwargs)
             results.append(result)
@@ -196,18 +196,18 @@ async def run_all_benchmarks(
                 "task_file": str(task_file),
                 "error": str(e),
             })
-    
+
     # Save results
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"benchmark_{datetime.now():%Y%m%d_%H%M%S}.json"
-    
+
     with output_file.open("w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
-    
+
     print(f"\n{'='*60}")
     print(f"Benchmark results saved to: {output_file}")
     print(f"{'='*60}")
-    
+
     # Summary
     print("\nSummary:")
     for r in results:
@@ -249,16 +249,16 @@ def main() -> None:
         default=Path("benchmarks"),
         help="Output directory for results (default: benchmarks/)",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Default seed prompts for each task
     seed_prompts = {
         "sentiment_task": "Classify the sentiment: {input}",
         "json_formatting_task": "Extract data as JSON: {input}",
         "arithmetic_task": "Solve: {input}",
     }
-    
+
     if args.task:
         # Run single task
         asyncio.run(run_benchmark(

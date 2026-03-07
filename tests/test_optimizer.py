@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -39,6 +38,38 @@ class MockStrategy:
             for ind in population.individuals
         ]
         return Population(individuals=individuals, generation=population.generation + 1)
+
+
+class MockCrowdingStrategy(MockStrategy):
+    """Mock strategy that exposes crowding-penalty integration."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.penalty_called = False
+        self.last_evolve_scores: list[float] = []
+
+    def apply_crowding_penalty(
+        self, population: Population, fitness_scores: list[float]
+    ) -> list[float]:
+        self.penalty_called = True
+        return [score - 0.1 for score in fitness_scores]
+
+    def evolve(
+        self, population: Population, fitness_scores: list[float]
+    ) -> Population:
+        self.last_evolve_scores = fitness_scores
+        return super().evolve(population, fitness_scores)
+
+
+class MockLineageStrategy(MockStrategy):
+    """Mock strategy that exposes lineage reporting."""
+
+    def get_lineage_report(self, individual: Individual) -> dict[str, Any]:
+        return {
+            "prompt": individual.prompt.text,
+            "mutation_operator": individual.prompt.metadata.get("mutation_operator"),
+            "generation": individual.generation,
+        }
 
 
 class MockEvaluator:
@@ -241,6 +272,44 @@ class TestOptimizer:
 
         assert strategy.initialize_called
         assert strategy.evolve_count > 0
+
+    @pytest.mark.asyncio
+    async def test_optimize_applies_crowding_penalty_before_evolve(
+        self, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Selection should use diversity-penalized scores when available."""
+        strategy = MockCrowdingStrategy()
+        optimizer = Optimizer(
+            strategy=strategy,
+            evaluator=MockEvaluator(fixed_score=0.8),
+            llm_client=MockLLMClient(),
+            config=OptimizerConfig(max_generations=2, population_size=2),
+        )
+
+        result = await optimizer.optimize(seed_prompt, task)
+
+        assert result.history.generations
+        assert strategy.penalty_called
+        assert strategy.last_evolve_scores == [0.7000000000000001, 0.7000000000000001]
+        assert "selection_fitness_scores" in result.history.generations[0].metadata
+
+    @pytest.mark.asyncio
+    async def test_optimize_persists_lineage_report(
+        self, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Best-lineage diagnostics should be stored in result payloads."""
+        optimizer = Optimizer(
+            strategy=MockLineageStrategy(),
+            evaluator=MockEvaluator(fixed_score=0.8),
+            llm_client=MockLLMClient(),
+            config=OptimizerConfig(max_generations=2, population_size=2),
+        )
+
+        result = await optimizer.optimize(seed_prompt, task)
+
+        assert result.lineage_report is not None
+        assert result.to_dict()["lineage_report"] is not None
+        assert "lineage_report" in result.history.generations[0].metadata
 
     @pytest.mark.asyncio
     async def test_optimize_early_stopping(

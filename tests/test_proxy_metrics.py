@@ -97,7 +97,7 @@ class TestJsonSchemaEvaluator:
         # Both key present and correct type
         score = evaluator.evaluate('{"name": "Alice", "age": 30}', '')
         assert score == 1.0  # 1 required key + 2 type checks = 3/3
-        
+
         # Wrong type for age
         score = evaluator.evaluate('{"name": "Alice", "age": "thirty"}', '')
         assert score == pytest.approx(2/3)  # name key + name type, but not age type
@@ -309,7 +309,7 @@ class TestOutputShapeEvaluator:
         )
         output = "Step 1: First\nStep 2: Second\nConclusion: Done"
         assert evaluator.evaluate(output, '') == 1.0
-        
+
         # Missing one
         output = "Step 1: First\nConclusion: Done"
         assert evaluator.evaluate(output, '') == pytest.approx(2/3)
@@ -340,7 +340,7 @@ class TestOutputShapeEvaluator:
         # All pass
         output = "Result: The value was calculated correctly."
         assert evaluator.evaluate(output, '') == 1.0
-        
+
         # Missing suffix
         output = "Result: The value was calculated correctly"
         assert evaluator.evaluate(output, '') == pytest.approx(2/3)
@@ -365,19 +365,19 @@ class TestProxyMetricsIntegration:
         schema_evaluator = JsonSchemaEvaluator(
             required_keys=["name", "email", "phone"]
         )
-        
+
         good_output = '{"name": "Alice", "email": "alice@example.com", "phone": "123-456"}'
         partial_output = '{"name": "Alice", "email": "alice@example.com"}'
         bad_output = 'I found the contact: Alice, email: alice@example.com'
-        
+
         # Good output passes both
         assert parse_evaluator.evaluate(good_output, '') == 1.0
         assert schema_evaluator.evaluate(good_output, '') == 1.0
-        
+
         # Partial output passes parse but not full schema
         assert parse_evaluator.evaluate(partial_output, '') == 1.0
         assert schema_evaluator.evaluate(partial_output, '') == pytest.approx(2/3)
-        
+
         # Bad output fails parse
         assert parse_evaluator.evaluate(bad_output, '') == 0.0
 
@@ -390,13 +390,13 @@ class TestProxyMetricsIntegration:
         field_evaluator = FieldCoverageEvaluator(
             required_patterns=["Risk Level:", "Recommendation:"]
         )
-        
+
         good_output = """Analysis: Market Review
 Findings: Strong growth potential
 Risk Level: Medium
 Recommendation: Hold
 Conclusion: Positive outlook"""
-        
+
         # Both evaluators should give positive scores
         assert shape_evaluator.evaluate(good_output, '') > 0.5
         assert field_evaluator.evaluate(good_output, '') == 1.0

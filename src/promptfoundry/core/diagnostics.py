@@ -35,7 +35,7 @@ class RunStatus(Enum):
 @dataclass
 class GenerationMetrics:
     """Detailed metrics for a single generation.
-    
+
     Attributes:
         generation: Generation number.
         best_fitness: Best fitness in this generation.
@@ -70,7 +70,7 @@ class GenerationMetrics:
 @dataclass
 class RunDiagnostics:
     """Complete diagnostics for an optimization run.
-    
+
     Attributes:
         task_name: Name of the optimization task.
         seed_fitness: Fitness of the seed prompt (baseline).
@@ -114,16 +114,16 @@ class RunDiagnostics:
         elapsed_time: float = 0.0,
         total_llm_calls: int = 0,
         total_cache_hits: int = 0,
-    ) -> "RunDiagnostics":
+    ) -> RunDiagnostics:
         """Analyze optimization history and produce diagnostics.
-        
+
         Args:
             history_data: Loaded history JSON data.
             termination_reason: String reason for termination.
             elapsed_time: Total elapsed time in seconds.
             total_llm_calls: Total LLM API calls made.
             total_cache_hits: Total cache hits.
-            
+
         Returns:
             RunDiagnostics with analysis results.
         """
@@ -131,30 +131,30 @@ class RunDiagnostics:
         diag.task_name = history_data.get("task", history_data.get("task_name", ""))
         diag.elapsed_time_seconds = elapsed_time
         diag.total_llm_calls = total_llm_calls
-        
+
         # Parse termination reason
         try:
             diag.termination_reason = TerminationReason(termination_reason)
         except ValueError:
             diag.termination_reason = TerminationReason.UNKNOWN
-        
+
         # Process generation data - handle both old and new formats
         # New CLI format: history_data["history"]["generations"] = [...]
         # Test format: history_data["generations"] = [...]
         # Very old format: history_data["generations"] = int (count only)
         history_obj = history_data.get("history", {})
         generations = history_obj.get("generations", None)
-        
+
         # Fallback to root-level generations if not in history object
         if generations is None:
             generations = history_data.get("generations", [])
-        
+
         # Check if generations is actually a list (new format) vs int (old format)
         if not isinstance(generations, list) or not generations:
             # Fallback: try to get minimal data from root fields (old format)
             best_fitness = history_data.get("best_fitness", 0.0)
             total_gens = history_data.get("generations", 0)
-            
+
             if isinstance(total_gens, int) and best_fitness > 0:
                 # Old format with just summary data
                 diag.total_generations = total_gens
@@ -164,36 +164,36 @@ class RunDiagnostics:
                 diag.status = RunStatus.NO_SIGNAL if best_fitness < 0.1 else RunStatus.SUCCESS
                 diag.warnings.append("Limited data: old history format without per-generation details")
                 return diag
-            
+
             diag.status = RunStatus.FAILED
             diag.warnings.append("No generation data found")
             return diag
-        
+
         diag.total_generations = len(generations)
-        
+
         # Find seed fitness (first generation best)
         diag.seed_fitness = generations[0].get("best_fitness", 0.0)
-        
+
         # Find best fitness
         diag.best_fitness = max(g.get("best_fitness", 0.0) for g in generations)
-        
+
         # Calculate improvement
         diag.improvement = diag.best_fitness - diag.seed_fitness
         if diag.seed_fitness > 0:
             diag.improvement_percent = (diag.improvement / diag.seed_fitness) * 100
         elif diag.best_fitness > 0:
             diag.improvement_percent = 100.0  # From zero to something
-        
+
         # Calculate total evaluations
         diag.total_evaluations = sum(
             g.get("population_size", 0) for g in generations
         )
-        
+
         # Cache statistics
         total_calls = total_llm_calls + total_cache_hits
         if total_calls > 0:
             diag.cache_hit_rate = total_cache_hits / total_calls
-        
+
         # Parse per-generation metrics
         for g in generations:
             metrics = GenerationMetrics(
@@ -207,55 +207,55 @@ class RunDiagnostics:
                 timestamp=g.get("timestamp", ""),
             )
             diag.generations.append(metrics)
-        
+
         # Calculate average generation time
         if diag.generations:
             total_gen_time = sum(g.evaluation_time_ms for g in diag.generations)
             diag.avg_generation_time_ms = total_gen_time / len(diag.generations)
-        
+
         # Determine run status
         diag.status = cls._determine_status(diag)
-        
+
         # Add warnings
         diag.warnings = cls._detect_warnings(diag)
-        
+
         return diag
 
     @staticmethod
-    def _determine_status(diag: "RunDiagnostics") -> RunStatus:
+    def _determine_status(diag: RunDiagnostics) -> RunStatus:
         """Determine the overall status of a run."""
         if diag.termination_reason == TerminationReason.ERROR:
             return RunStatus.FAILED
-        
+
         if diag.termination_reason == TerminationReason.INTERRUPTED:
             if diag.improvement > 0.001:
                 return RunStatus.PARTIAL
             return RunStatus.NO_SIGNAL
-        
+
         if diag.improvement <= 0.001:  # No meaningful improvement
             return RunStatus.NO_SIGNAL
-        
+
         return RunStatus.SUCCESS
 
     @staticmethod
-    def _detect_warnings(diag: "RunDiagnostics") -> list[str]:
+    def _detect_warnings(diag: RunDiagnostics) -> list[str]:
         """Detect potential issues in the run."""
         warnings = []
-        
+
         # No signal warning
         if diag.improvement <= 0.001:
             warnings.append(
                 "NO SIGNAL: No improvement over seed prompt detected. "
                 "Consider different mutation operators or longer runs."
             )
-        
+
         # Low improvement warning
         if 0 < diag.improvement < 0.05 and diag.seed_fitness > 0:
             warnings.append(
                 f"LOW SIGNAL: Only {diag.improvement_percent:.1f}% improvement achieved. "
                 "Results may not be statistically significant."
             )
-        
+
         # Early termination warning
         if diag.termination_reason == TerminationReason.PATIENCE_EXHAUSTED:
             if diag.total_generations < 5:
@@ -263,21 +263,21 @@ class RunDiagnostics:
                     "EARLY STOP: Run ended due to patience after few generations. "
                     "Consider increasing patience or changing strategy."
                 )
-        
+
         # Budget exhausted warning
         if diag.termination_reason == TerminationReason.RUNTIME_BUDGET:
             warnings.append(
                 "BUDGET LIMIT: Run stopped due to runtime budget. "
                 "Results may be suboptimal."
             )
-        
+
         # High cache hit rate (might indicate duplicate prompts)
         if diag.cache_hit_rate > 0.8:
             warnings.append(
                 f"HIGH CACHE: {diag.cache_hit_rate*100:.0f}% cache hit rate suggests "
                 "many duplicate prompts. Consider more diverse mutations."
             )
-        
+
         # Fitness plateau detection
         if len(diag.generations) >= 3:
             last_3 = diag.generations[-3:]
@@ -285,7 +285,7 @@ class RunDiagnostics:
                 warnings.append(
                     "PLATEAU: Best fitness hasn't improved in last 3 generations."
                 )
-        
+
         return warnings
 
     def to_dict(self) -> dict[str, Any]:
@@ -323,7 +323,7 @@ class RunDiagnostics:
 @dataclass
 class BenchmarkSummary:
     """Summary of multiple benchmark runs for comparison.
-    
+
     Attributes:
         runs: List of run diagnostics to summarize.
         task_comparison: Comparison across different tasks.
@@ -386,7 +386,7 @@ class BenchmarkSummary:
 
     def task_stats(self) -> dict[str, dict[str, float]]:
         """Calculate statistics per task.
-        
+
         Returns:
             Dict mapping task name to stats dict.
         """
@@ -395,7 +395,7 @@ class BenchmarkSummary:
             improvements = [r.improvement for r in runs]
             runtimes = [r.elapsed_time_seconds for r in runs]
             success_rate = sum(1 for r in runs if r.status == RunStatus.SUCCESS) / len(runs)
-            
+
             stats[task] = {
                 "num_runs": len(runs),
                 "success_rate": success_rate,
@@ -421,49 +421,49 @@ class BenchmarkSummary:
 
 def format_diagnostics_report(diag: RunDiagnostics) -> str:
     """Format diagnostics as a human-readable report.
-    
+
     Args:
         diag: RunDiagnostics to format.
-        
+
     Returns:
         Formatted report string.
     """
     lines = []
-    
+
     # Header
     lines.append("=" * 60)
-    lines.append(f"OPTIMIZATION DIAGNOSTICS REPORT")
+    lines.append("OPTIMIZATION DIAGNOSTICS REPORT")
     lines.append("=" * 60)
-    
+
     # Summary
     lines.append(f"\nTask: {diag.task_name}")
     lines.append(f"Status: {diag.status.value.upper()}")
     lines.append(f"Termination: {diag.termination_reason.value}")
-    
+
     # Scores
-    lines.append(f"\n--- Fitness ---")
+    lines.append("\n--- Fitness ---")
     lines.append(f"Seed Fitness:    {diag.seed_fitness:.4f}")
     lines.append(f"Best Fitness:    {diag.best_fitness:.4f}")
     lines.append(f"Improvement:     {diag.improvement:+.4f} ({diag.improvement_percent:+.1f}%)")
-    
+
     # Statistics
-    lines.append(f"\n--- Statistics ---")
+    lines.append("\n--- Statistics ---")
     lines.append(f"Generations:     {diag.total_generations}")
     lines.append(f"Evaluations:     {diag.total_evaluations}")
     lines.append(f"LLM Calls:       {diag.total_llm_calls}")
     lines.append(f"Cache Hit Rate:  {diag.cache_hit_rate*100:.1f}%")
     lines.append(f"Elapsed Time:    {diag.elapsed_time_seconds:.2f}s")
     lines.append(f"Avg Gen Time:    {diag.avg_generation_time_ms:.1f}ms")
-    
+
     # Warnings
     if diag.warnings:
-        lines.append(f"\n--- Warnings ---")
+        lines.append("\n--- Warnings ---")
         for warning in diag.warnings:
             lines.append(f"⚠ {warning}")
-    
+
     # Per-generation latency
     if diag.generations:
-        lines.append(f"\n--- Per-Generation ---")
+        lines.append("\n--- Per-Generation ---")
         lines.append(f"{'Gen':>4} {'Best':>8} {'Avg':>8} {'Time(ms)':>10} {'Calls':>6}")
         lines.append("-" * 40)
         for g in diag.generations[:10]:  # Show first 10
@@ -473,38 +473,38 @@ def format_diagnostics_report(diag: RunDiagnostics) -> str:
             )
         if len(diag.generations) > 10:
             lines.append(f"... ({len(diag.generations) - 10} more generations)")
-    
+
     lines.append("\n" + "=" * 60)
-    
+
     return "\n".join(lines)
 
 
 def format_benchmark_summary(summary: BenchmarkSummary) -> str:
     """Format benchmark summary as a human-readable report.
-    
+
     Args:
         summary: BenchmarkSummary to format.
-        
+
     Returns:
         Formatted summary string.
     """
     lines = []
-    
+
     lines.append("=" * 60)
     lines.append("BENCHMARK SUMMARY REPORT")
     lines.append("=" * 60)
-    
-    lines.append(f"\n--- Overview ---")
+
+    lines.append("\n--- Overview ---")
     lines.append(f"Total Runs:        {summary.total_runs}")
     lines.append(f"Successful:        {summary.successful_runs}")
     lines.append(f"No Signal:         {summary.no_signal_runs}")
     lines.append(f"Avg Improvement:   {summary.average_improvement:.4f}")
     lines.append(f"Avg Runtime:       {summary.average_runtime:.2f}s")
-    
+
     # Per-task breakdown
     task_stats = summary.task_stats()
     if task_stats:
-        lines.append(f"\n--- Per-Task Breakdown ---")
+        lines.append("\n--- Per-Task Breakdown ---")
         for task, stats in task_stats.items():
             lines.append(f"\n  {task}:")
             lines.append(f"    Runs:          {stats['num_runs']:.0f}")
@@ -512,7 +512,7 @@ def format_benchmark_summary(summary: BenchmarkSummary) -> str:
             lines.append(f"    Avg Improve:   {stats['avg_improvement']:.4f}")
             lines.append(f"    Max Improve:   {stats['max_improvement']:.4f}")
             lines.append(f"    Avg Runtime:   {stats['avg_runtime_s']:.2f}s")
-    
+
     lines.append("\n" + "=" * 60)
-    
+
     return "\n".join(lines)
