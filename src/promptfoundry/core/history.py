@@ -66,6 +66,8 @@ class OptimizationResult:
     termination_reason: str = "unknown"
     total_llm_calls: int = 0
     total_cache_hits: int = 0
+    # record each evaluation interaction for post‑mortem
+    interactions: list[dict[str, Any]] = field(default_factory=list)
 
     def __str__(self) -> str:
         """Return a summary of the result."""
@@ -98,14 +100,13 @@ class OptimizationResult:
             "total_cache_hits": self.total_cache_hits,
             "seed_fitness": seed_fitness,
             "history": self.history.to_dict(),
+            "interactions": self.interactions,
         }
 
 
 @dataclass
 class OptimizationHistory:
-    """Complete history of an optimization run.
-
-    Tracks all generations, enabling analysis and checkpointing.
+    """Optimization history metadata and generation list.
 
     Attributes:
         generations: List of generation records.

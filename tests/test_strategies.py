@@ -64,6 +64,31 @@ class TestGeneticAlgorithmStrategy:
         assert len(new_population) == 10
         assert new_population.generation == 1
 
+    def test_evolve_small_population_does_not_freeze_with_elitism(
+        self, seed_prompt: Prompt
+    ) -> None:
+        """Small populations should still create at least one new prompt."""
+        strategy = GeneticAlgorithmStrategy(
+            EvolutionaryConfig(
+                population_size=2,
+                mutation_rate=1.0,
+                crossover_rate=0.0,
+                tournament_size=2,
+                elitism=2,
+                seed=42,
+            )
+        )
+
+        population = strategy.initialize(seed_prompt, population_size=2)
+        original_texts = [individual.prompt.text for individual in population]
+
+        new_population = strategy.evolve(population, [0.8, 0.7])
+        new_texts = [individual.prompt.text for individual in new_population]
+
+        assert len(new_population) == 2
+        assert new_population.generation == 1
+        assert any(text not in original_texts for text in new_texts)
+
     def test_elitism_preserves_best(
         self, strategy: GeneticAlgorithmStrategy, seed_prompt: Prompt
     ) -> None:

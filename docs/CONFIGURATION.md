@@ -185,6 +185,12 @@ output:
   
   # Generate performance plots (requires matplotlib)
   generate_plots: false
+  
+  # Debugging: the optimizer now records every prompt/completion pair
+  # evaluated during a run in the history metadata under
+  # `history.generations[].metadata.interactions`.  This log can grow large,
+  # so only enable it when diagnosing problems.
+
 ```
 
 ---

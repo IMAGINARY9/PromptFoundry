@@ -102,6 +102,8 @@ class OptimizationState:
     total_cache_hits: int = 0
     termination_reason: str = "unknown"
     start_time: float = field(default_factory=time.time)
+    # aggregated interactions across all evaluations
+    interactions: list[dict[str, Any]] = field(default_factory=list)
 
     def update_best(self, prompt: Prompt, score: float) -> bool:
         """Update best result if score improves.
@@ -121,6 +123,15 @@ class OptimizationState:
         else:
             self.generations_without_improvement += 1
             return False
+
+
+@dataclass
+class CachedEvaluation:
+    """Cached evaluation details for a prompt/example pair."""
+
+    score: float
+    prompt_text: str
+    completion: str
 
 
 class Optimizer:
@@ -173,7 +184,7 @@ class Optimizer:
         # Cache exact evaluations within a single run.
         # avoids re‑evaluating identical combinations when evolution produces
         # duplicates or when checkpoint/resume happens.
-        self._score_cache: dict[tuple[str, str, str, str | None], float] = {}
+        self._score_cache: dict[tuple[str, str, str, str | None], CachedEvaluation] = {}
         max_concurrency = max(1, self.config.max_concurrency)
         self._sem = asyncio.Semaphore(max_concurrency)
 
@@ -229,12 +240,16 @@ class Optimizer:
 
             # Evaluate current population
             try:
-                fitness_scores = await self._evaluate_population(population, task)
+                fitness_scores, interactions = await self._evaluate_population(population, task)
             except asyncio.CancelledError:
                 # optimization was cancelled (e.g. Ctrl-C); stop early
                 self._state.termination_reason = "interrupted"
                 break
-            
+
+            # record interactions in global state for result
+            if interactions:
+                self._state.interactions.extend(interactions)
+
             # Calculate generation metrics
             gen_elapsed_ms = (time.time() - gen_start_time) * 1000
             cache_size_after = len(self._score_cache)
@@ -265,13 +280,18 @@ class Optimizer:
                 ],
                 generation=self._state.current_generation,
             )
+            metadata = {
+                "evaluation_time_ms": gen_elapsed_ms,
+                "llm_calls": llm_calls_this_gen,
+                "cache_hits": cache_hits_this_gen,
+            }
+            if interactions:
+                # store raw prompts/completions for debugging
+                metadata["interactions"] = interactions
+
             self._history.add_generation(
                 evaluated_pop,
-                metadata={
-                    "evaluation_time_ms": gen_elapsed_ms,
-                    "llm_calls": llm_calls_this_gen,
-                    "cache_hits": cache_hits_this_gen,
-                },
+                metadata=metadata,
             )
 
             # Invoke callbacks
@@ -303,46 +323,51 @@ class Optimizer:
             termination_reason=self._state.termination_reason,
             total_llm_calls=self._state.total_llm_calls,
             total_cache_hits=self._state.total_cache_hits,
+            interactions=self._state.interactions,
         )
+
 
     async def _evaluate_population(
         self,
         population: Population,
         task: Task,
-    ) -> list[float]:
-        """Evaluate all individuals in a population.
-
-        Args:
-            population: Population to evaluate.
-            task: Task with examples.
+    ) -> tuple[list[float], list[dict[str, Any]]]:
+        """Evaluate an entire population and record interactions.
 
         Returns:
-            List of fitness scores for each individual.
+            Tuple of (fitness scores list, interactions list).
         """
         fitness_scores: list[float] = []
+        interactions: list[dict[str, Any]] = []
 
         # Process in batches for efficiency
         for i in range(0, len(population), self.config.batch_size):
             batch = population.individuals[i : i + self.config.batch_size]
-            batch_scores = await self._evaluate_batch(batch, task.examples, task.system_prompt)
+            batch_scores, batch_interactions = await self._evaluate_batch(
+                batch, task.examples, task.system_prompt
+            )
             fitness_scores.extend(batch_scores)
+            interactions.extend(batch_interactions)
 
-        return fitness_scores
+        return fitness_scores, interactions
 
     async def _evaluate_batch(
         self,
         individuals: list[Individual],
         examples: list[Example],
         system_prompt: str | None = None,
-    ) -> list[float]:
+    ) -> tuple[list[float], list[dict[str, Any]]]:
         """Evaluate a batch of individuals against examples.
 
-        This version launches all example evaluations concurrently and uses an
-        in‑memory cache to avoid duplicated LLM requests.  A semaphore throttles
-        concurrent calls to protect slow or single‑threaded LLM backends.
+        Returns:
+            Tuple of (fitness scores, interaction log).
         """
 
-        async def _score_example(ind: Individual, example: Example) -> float:
+        async def _score_example(
+            ind: Individual,
+            example: Example,
+        ) -> tuple[float, str, str, bool]:
+            prompt_text = self._format_prompt(ind.prompt, example)
             key = (
                 ind.prompt.text,
                 example.input,
@@ -350,9 +375,9 @@ class Optimizer:
                 system_prompt,
             )
             if key in self._score_cache:
-                return self._score_cache[key]
+                cached = self._score_cache[key]
+                return cached.score, cached.prompt_text, cached.completion, True
 
-            prompt_text = self._format_prompt(ind.prompt, example)
             try:
                 async with self._sem:
                     completion = await self.llm_client.complete(
@@ -360,20 +385,40 @@ class Optimizer:
                     )
                 score = self.evaluator.evaluate(completion, example.expected_output)
             except Exception:
+                completion = ""
                 score = 0.0
 
-            self._score_cache[key] = score
-            return score
+            self._score_cache[key] = CachedEvaluation(
+                score=score,
+                prompt_text=prompt_text,
+                completion=completion,
+            )
+            return score, prompt_text, completion, False
 
         scores: list[float] = []
+        interactions: list[dict[str, Any]] = []
 
         for ind in individuals:
-            tasks = [_score_example(ind, ex) for ex in examples]
+            tasks = []
+            for ex in examples:
+                async def _task(ind=ind, ex=ex):
+                    sc, prompt_text, completion, from_cache = await _score_example(ind, ex)
+                    interactions.append(
+                        {
+                            "prompt": prompt_text,
+                            "completion": completion,
+                            "expected": ex.expected_output,
+                            "score": sc,
+                            "cached": from_cache,
+                        }
+                    )
+                    return sc
+                tasks.append(_task())
             ind_scores = await asyncio.gather(*tasks)
             fitness = self.evaluator.aggregate(ind_scores)
             scores.append(fitness)
 
-        return scores
+        return scores, interactions
 
     def _format_prompt(self, prompt: Prompt, example: Example) -> str:
         """Format a prompt with an example input.

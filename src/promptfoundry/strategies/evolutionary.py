@@ -115,9 +115,14 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         new_individuals: list[Individual] = []
         next_gen = population.generation + 1
 
-        # Elitism: preserve top individuals
+        # Elitism: preserve top individuals, but always leave room for
+        # offspring when population size allows evolution.
         seen_texts: set[str] = set()
-        for elite in evaluated[: self.evo_config.elitism]:
+        effective_elitism = self.evo_config.elitism
+        if len(population) > 1:
+            effective_elitism = min(effective_elitism, len(population) - 1)
+
+        for elite in evaluated[:effective_elitism]:
             seen_texts.add(elite.prompt.text)
             new_individuals.append(
                 Individual(

@@ -158,6 +158,15 @@ class TestOptimizer:
         assert result.history is not None
         assert len(result.history.generations) > 0
 
+        # metadata should contain interactions log
+        first_meta = result.history.generations[0].metadata
+        assert "interactions" in first_meta
+        interactions = first_meta["interactions"]
+        assert isinstance(interactions, list)
+        assert interactions, "expected at least one interaction entry"
+        sample = interactions[0]
+        assert "prompt" in sample and "completion" in sample and "score" in sample
+
     @pytest.mark.asyncio
     async def test_result_to_dict_always_includes_history_generations(
         self, optimizer: Optimizer, seed_prompt: Prompt, task: Task
@@ -186,6 +195,32 @@ class TestOptimizer:
         encoded = json.dumps(payload)
         decoded = json.loads(encoded)
         assert decoded["history"]["generations"]
+
+    @pytest.mark.asyncio
+    async def test_interactions_logged(
+        self, optimizer: Optimizer, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Ensure that prompt/completion interactions are stored."""
+        result = await optimizer.optimize(seed_prompt, task)
+        assert isinstance(result.interactions, list)
+        # when using MockLLMClient, there should be as many interactions as examples*pop
+        assert result.interactions
+        entry = result.interactions[0]
+        assert "prompt" in entry and "completion" in entry and "score" in entry
+        assert "cached" in entry
+
+    @pytest.mark.asyncio
+    async def test_cached_interactions_preserve_prompt_and_completion(
+        self, optimizer: Optimizer, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Cache hits should retain useful diagnostics instead of blank fields."""
+        result = await optimizer.optimize(seed_prompt, task)
+
+        cached_entries = [entry for entry in result.interactions if entry["cached"]]
+
+        assert cached_entries
+        assert all(entry["prompt"] for entry in cached_entries)
+        assert all(entry["completion"] for entry in cached_entries)
 
     @pytest.mark.asyncio
     async def test_optimize_calls_strategy(
