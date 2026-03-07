@@ -242,7 +242,7 @@ class Optimizer:
             population = self.strategy.initialize(seed_prompt, self.config.population_size)
             self._state.best_prompt = seed_prompt
         else:
-            # Would need to reconstruct population from checkpoint
+            # Fallback for legacy checkpoints that did not store population state.
             population = self.strategy.initialize(seed_prompt, self.config.population_size)
         self._current_population = population
 

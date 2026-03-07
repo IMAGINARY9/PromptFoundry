@@ -2,7 +2,7 @@
 
 > Development setup, conventions, and workflow for PromptFoundry.
 
-**Status:** MVP 1 Complete | 84 tests passing | 23 source files
+**Status:** MVP 2 Complete | full test suite passing
 
 ---
 

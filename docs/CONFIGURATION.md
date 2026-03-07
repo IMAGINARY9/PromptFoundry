@@ -79,18 +79,9 @@ strategy:
     adaptive_mutation_weights: true
     min_operator_weight: 0.4
     weight_learning_rate: 0.8
-    
-    # Mutation operators to use
-    mutation_operators:
-      - rephrase
-      - add_constraint
-      - remove_constraint
-      - swap_examples
-    
-    # Crossover operators to use
-    crossover_operators:
-      - single_point
-      - component_mix
+
+    # The semantic mutation/crossover operator library is built in.
+    # Tune behavior through weights and rates rather than operator name lists.
   
   bayesian:
     # Acquisition function: ei | lcb | pi
