@@ -133,6 +133,16 @@ class TestRegexEvaluator:
         evaluator = RegexEvaluator(use_expected_as_pattern=True)
         assert evaluator.evaluate("error code 404", r"\d+") == 1.0
 
+    def test_regex_substitutes_expected_placeholder(self) -> None:
+        """Fixed regex patterns may interpolate the expected answer safely."""
+        evaluator = RegexEvaluator(pattern=r"\b{expected}\b", full_match=True)
+        assert evaluator.evaluate("42", "42") == 1.0
+
+    def test_regex_placeholder_full_match_rejects_verbose_answer(self) -> None:
+        """Strict regex tasks should not score explanatory answers as exact hits."""
+        evaluator = RegexEvaluator(pattern=r"\b{expected}\b", full_match=True)
+        assert evaluator.evaluate("The answer is 42.", "42") == 0.0
+
 
 class TestContainsEvaluator:
     """Tests for ContainsEvaluator."""

@@ -155,12 +155,16 @@ evaluation:
 
   # For exact_match: normalize concise final answers out of verbose completions
   normalize_output: true
+  # Set to false for strict label-only or number-only tasks
   
   # For fuzzy_match: similarity threshold (0.0-1.0)
   similarity_threshold: 0.8
   
   # For regex: pattern to match
   regex_pattern: null
+  # Fixed regex patterns may include an {expected} placeholder, for example:
+  #   "\\b{expected}\\b"
+  # Set full_match=true when the task requires a bare answer with no explanation.
   
   # For json_schema: path to schema file
   json_schema_path: null

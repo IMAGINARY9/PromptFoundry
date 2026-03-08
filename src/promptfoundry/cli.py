@@ -65,6 +65,23 @@ app = typer.Typer(
 console = Console()
 
 
+def _parse_task_examples(raw_examples: list[dict[str, Any]]) -> list[Example]:
+    """Parse task examples while supporting both legacy and current schemas."""
+    examples: list[Example] = []
+    for ex in raw_examples:
+        expected_output = ex.get("expected", ex.get("output"))
+        if expected_output is None:
+            raise ValueError("Each task example must include either 'expected' or 'output'")
+        examples.append(
+            Example(
+                input=ex["input"],
+                expected_output=expected_output,
+                metadata=ex.get("metadata", {}),
+            )
+        )
+    return examples
+
+
 def _apply_runtime_llm_overrides(
     llm_config: LLMConfig,
     runtime_config: RuntimeConfig,
@@ -91,19 +108,16 @@ def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
     with task_path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    examples = [
-        Example(
-            input=ex["input"],
-            expected_output=ex["expected"],
-            metadata=ex.get("metadata", {}),
-        )
-        for ex in data.get("examples", [])
-    ]
+    examples = _parse_task_examples(data.get("examples", []))
+    validation_examples = None
+    if "validation_examples" in data:
+        validation_examples = _parse_task_examples(data.get("validation_examples", []))
 
     task = Task(
         name=data["name"],
         examples=examples,
         system_prompt=data.get("system_prompt"),
+        validation_examples=validation_examples,
         metadata=data.get("metadata", {}),
     )
 

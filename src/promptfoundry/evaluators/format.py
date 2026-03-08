@@ -16,6 +16,8 @@ class RegexEvaluator(BaseEvaluator):
     """Evaluator that checks if output matches a regex pattern.
 
     Can use the expected output as the pattern or a fixed pattern.
+    Fixed patterns may also contain an ``{expected}`` placeholder which is
+    replaced with an escaped copy of the expected output at evaluation time.
     """
 
     def __init__(
@@ -40,11 +42,30 @@ class RegexEvaluator(BaseEvaluator):
         self.use_expected_as_pattern = use_expected_as_pattern
         self.full_match = full_match
 
-        # Pre-compile fixed pattern if provided
+        # Pre-compile fixed patterns that do not depend on the expected value.
         self._compiled_pattern: re.Pattern[str] | None = None
-        if pattern:
+        if pattern and "{expected}" not in pattern:
             flags = 0 if case_sensitive else re.IGNORECASE
             self._compiled_pattern = re.compile(pattern, flags)
+
+    def _build_pattern(self, expected: str) -> re.Pattern[str] | None:
+        """Resolve the effective regex pattern for this evaluation."""
+        flags = 0 if self.case_sensitive else re.IGNORECASE
+
+        if self.use_expected_as_pattern:
+            return re.compile(expected, flags)
+
+        if self._compiled_pattern is not None:
+            return self._compiled_pattern
+
+        if self.pattern is None:
+            return None
+
+        if "{expected}" in self.pattern:
+            resolved_pattern = self.pattern.replace("{expected}", re.escape(expected))
+            return re.compile(resolved_pattern, flags)
+
+        return re.compile(self.pattern, flags)
 
     def evaluate(
         self,
@@ -63,16 +84,12 @@ class RegexEvaluator(BaseEvaluator):
             1.0 if matches, 0.0 otherwise.
         """
         pred = self._preprocess(predicted)
+        exp = self._preprocess(expected)
 
         # Determine which pattern to use
-        if self.use_expected_as_pattern:
-            flags = 0 if self.case_sensitive else re.IGNORECASE
-            pattern = re.compile(expected, flags)
-        elif self._compiled_pattern:
-            pattern = self._compiled_pattern
-        else:
+        pattern = self._build_pattern(exp)
+        if pattern is None:
             # No pattern specified, fall back to exact match
-            exp = self._preprocess(expected)
             return 1.0 if pred == exp else 0.0
 
         # Match

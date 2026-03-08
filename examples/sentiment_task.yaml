@@ -4,11 +4,13 @@
 name: sentiment_classification
 
 system_prompt: |
-  You are a sentiment analysis assistant. Analyze text and classify sentiment.
+  You are a sentiment analysis assistant. Analyze the text and return exactly
+  one label: positive, negative, or neutral.
 
 evaluator: exact_match
 evaluator_config:
   case_sensitive: false
+  normalize_output: false
 
 examples:
   - input: "I absolutely love this product! Best purchase ever!"

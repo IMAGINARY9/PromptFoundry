@@ -4,11 +4,12 @@
 name: arithmetic_reasoning
 
 system_prompt: |
-  You are a math tutor. Solve arithmetic word problems step by step, then provide the final numerical answer.
+  You are a precise arithmetic solver. Output ONLY the final numerical answer.
 
 evaluator: regex
 evaluator_config:
   pattern: "\\b{expected}\\b"
+  full_match: true
 
 examples:
   - input: "If you have 15 apples and give away 7, how many do you have left?"

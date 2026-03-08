@@ -23,7 +23,7 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 - 🧠 **Adaptive mutations**: Tracks operator win rates and reweights mutation operators during a run
 - 🌱 **Diversity-aware evolution**: Suppresses duplicates, applies crowding penalties, and tracks lineage
 - 🧪 **Ablation diagnostics**: Captures per-operator effectiveness summaries in saved result files
-- ✅ **Smarter exact match**: Normalizes concise label and numeric answers out of verbose completions
+- ✅ **Configurable exact match**: Supports permissive normalization when needed without weakening strict-output tasks
 - 💾 **Resumable checkpoints**: Saves population, cache, and operator state for true resume support
 - 🛠️ **Extensible**: Protocol-based interfaces for custom components
 
@@ -131,6 +131,7 @@ system_prompt: |
 evaluator: exact_match
 evaluator_config:
   case_sensitive: false
+  normalize_output: false
 
 examples:
   - input: "Sample input text"
@@ -149,6 +150,7 @@ examples:
 | [REQUIREMENTS.md](docs/REQUIREMENTS.md) | Functional and non-functional requirements |
 | [IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Development roadmap |
 | [CONFIGURATION.md](docs/CONFIGURATION.md) | Configuration reference |
+| [TASKS.md](docs/TASKS.md) | Bundled task inventory, evaluator contracts, and expansion guidance |
 | [DOCUMENTATION.md](docs/DOCUMENTATION.md) | Documentation standards |
 
 ---

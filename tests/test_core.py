@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from promptfoundry.core.population import Individual, Population
@@ -131,6 +133,42 @@ class TestTask:
 
         assert len(train) + len(val) == 5
         assert len(val) == 2  # 40% of 5 = 2
+
+    def test_task_from_file_accepts_expected_and_validation_examples(
+        self, tmp_path: Path
+    ) -> None:
+        """Task loading should support the bundled task schema."""
+        task_file = tmp_path / "task.yaml"
+        task_file.write_text(
+            """
+name: file_task
+system_prompt: |
+  You are helpful.
+examples:
+  - input: hello
+    expected: world
+validation_examples:
+  - input: foo
+    expected: bar
+metadata:
+  difficulty: easy
+""".strip(),
+            encoding="utf-8",
+        )
+
+        task = Task.from_file(task_file)
+
+        assert task.examples[0].expected_output == "world"
+        assert task.validation_examples is not None
+        assert task.validation_examples[0].expected_output == "bar"
+        assert task.metadata["difficulty"] == "easy"
+
+    def test_task_to_dict_uses_expected_key(self, sample_task: Task) -> None:
+        """Serialized tasks should match the shipped example schema."""
+        data = sample_task.to_dict()
+
+        assert "expected" in data["examples"][0]
+        assert "output" not in data["examples"][0]
 
 
 class TestIndividual:

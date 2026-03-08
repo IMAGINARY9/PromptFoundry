@@ -22,7 +22,7 @@ python scripts/run_benchmarks.py --llm-url http://localhost:8080/v1
 
 1. **Sentiment Classification** (`sentiment_task.yaml`)
    - Classify text as positive/negative/neutral
-   - Evaluator: exact_match (case-insensitive)
+   - Evaluator: exact_match (case-insensitive, strict single-label scoring)
    - 10 training + 3 validation examples
 
 2. **JSON Formatting** (`json_formatting_task.yaml`)
@@ -32,8 +32,10 @@ python scripts/run_benchmarks.py --llm-url http://localhost:8080/v1
 
 3. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
    - Solve word math problems
-   - Evaluator: regex (match final number)
+   - Evaluator: regex with `{expected}` placeholder and full-string numeric match
    - 12 examples
+
+For the full bundled task catalog, real-world use cases, and evaluator contract notes, see [docs/TASKS.md](../docs/TASKS.md).
 
 ## Result Format
 

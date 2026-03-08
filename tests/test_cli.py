@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from promptfoundry.cli import _apply_runtime_llm_overrides
+from pathlib import Path
+
+import yaml
+
+from promptfoundry.cli import _apply_runtime_llm_overrides, _load_task
 from promptfoundry.core.config import RuntimeConfig, RuntimeProfile
 from promptfoundry.llm import LLMConfig
 
@@ -31,3 +35,30 @@ class TestApplyRuntimeLlmOverrides:
         )
 
         assert updated.timeout == 45.0
+
+
+class TestLoadTask:
+    """Tests for task loading from CLI YAML files."""
+
+    def test_load_task_supports_validation_examples_and_expected_schema(
+        self, tmp_path: Path
+    ) -> None:
+        """CLI loading should preserve validation examples from bundled task files."""
+        task_file = tmp_path / "task.yaml"
+        task_data = {
+            "name": "demo_task",
+            "system_prompt": "You are helpful.",
+            "evaluator": "exact_match",
+            "evaluator_config": {"normalize_output": False},
+            "examples": [{"input": "a", "expected": "b"}],
+            "validation_examples": [{"input": "c", "expected": "d"}],
+        }
+        task_file.write_text(yaml.safe_dump(task_data), encoding="utf-8")
+
+        task, evaluator_type, evaluator_config = _load_task(task_file)
+
+        assert task.examples[0].expected_output == "b"
+        assert task.validation_examples is not None
+        assert task.validation_examples[0].expected_output == "d"
+        assert evaluator_type == "exact_match"
+        assert evaluator_config["normalize_output"] is False

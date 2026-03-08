@@ -13,6 +13,26 @@ from typing import Any
 import yaml
 
 
+def _get_example_expected_output(example_data: dict[str, Any]) -> str:
+    """Resolve supported example output keys.
+
+    The repository historically used both ``output`` and ``expected`` in task
+    YAML files. Accept both when loading, but standardize on ``expected`` when
+    writing new task files.
+    """
+    if "expected" in example_data:
+        expected_output = example_data["expected"]
+        if isinstance(expected_output, str):
+            return expected_output
+        raise ValueError("Task example field 'expected' must be a string")
+    if "output" in example_data:
+        expected_output = example_data["output"]
+        if isinstance(expected_output, str):
+            return expected_output
+        raise ValueError("Task example field 'output' must be a string")
+    raise ValueError("Task example must contain either 'expected' or 'output'")
+
+
 @dataclass(frozen=True)
 class Example:
     """Single input-output example for task evaluation.
@@ -93,7 +113,7 @@ class Task:
             examples.append(
                 Example(
                     input=ex["input"],
-                    expected_output=ex["output"],
+                    expected_output=_get_example_expected_output(ex),
                     metadata=ex.get("metadata", {}),
                 )
             )
@@ -106,7 +126,7 @@ class Task:
                 validation_examples.append(
                     Example(
                         input=ex["input"],
-                        expected_output=ex["output"],
+                        expected_output=_get_example_expected_output(ex),
                         metadata=ex.get("metadata", {}),
                     )
                 )
@@ -130,7 +150,7 @@ class Task:
             "examples": [
                 {
                     "input": ex.input,
-                    "output": ex.expected_output,
+                    "expected": ex.expected_output,
                     **({"metadata": ex.metadata} if ex.metadata else {}),
                 }
                 for ex in self.examples
@@ -144,7 +164,7 @@ class Task:
             result["validation_examples"] = [
                 {
                     "input": ex.input,
-                    "output": ex.expected_output,
+                    "expected": ex.expected_output,
                     **({"metadata": ex.metadata} if ex.metadata else {}),
                 }
                 for ex in self.validation_examples
