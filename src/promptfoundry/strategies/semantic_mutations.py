@@ -14,6 +14,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class TaskType(Enum):
@@ -113,7 +114,11 @@ class TaskDetector:
     ]
 
     @classmethod
-    def detect_task_type(cls, text: str) -> TaskType:
+    def detect_task_type(
+        cls,
+        text: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> TaskType:
         """Detect the task type from prompt text.
 
         Args:
@@ -122,6 +127,19 @@ class TaskDetector:
         Returns:
             Detected task type.
         """
+        if metadata:
+            metadata_task_type = str(metadata.get("task_type_hint", metadata.get("task_type", ""))).lower()
+            if any(term in metadata_task_type for term in ["classification", "sentiment", "label"]):
+                return TaskType.CLASSIFICATION
+            if any(term in metadata_task_type for term in ["extraction", "information_extraction"]):
+                return TaskType.EXTRACTION
+            if any(term in metadata_task_type for term in ["math", "numeric", "arithmetic"]):
+                return TaskType.NUMERIC
+            if any(term in metadata_task_type for term in ["reasoning", "analysis"]):
+                return TaskType.REASONING
+            if "qa" in metadata_task_type or "question" in metadata_task_type:
+                return TaskType.QA
+
         text_lower = text.lower()
 
         # Check patterns in order of specificity
@@ -141,7 +159,12 @@ class TaskDetector:
         return TaskType.UNKNOWN
 
     @classmethod
-    def detect_output_mode(cls, text: str, task_type: TaskType) -> OutputMode:
+    def detect_output_mode(
+        cls,
+        text: str,
+        task_type: TaskType,
+        metadata: dict[str, Any] | None = None,
+    ) -> OutputMode:
         """Detect expected output mode from prompt and task type.
 
         Args:
@@ -152,6 +175,20 @@ class TaskDetector:
             Expected output mode.
         """
         text_lower = text.lower()
+
+        if metadata:
+            output_format = str(metadata.get("output_format", metadata.get("output_mode", ""))).lower()
+            evaluator_type = str(metadata.get("evaluator_type", "")).lower()
+            if output_format in {"json", "structured"}:
+                return OutputMode.STRUCTURED
+            if output_format in {"numeric", "number", "digits"}:
+                return OutputMode.NUMERIC
+            if evaluator_type in {"regex", "numeric_answer"} and task_type == TaskType.NUMERIC:
+                return OutputMode.NUMERIC
+            if evaluator_type == "exact_match" and task_type == TaskType.CLASSIFICATION:
+                return OutputMode.LABEL
+            if evaluator_type == "exact_match" and task_type == TaskType.NUMERIC:
+                return OutputMode.NUMERIC
 
         # Explicit output mode indicators
         if any(
@@ -170,8 +207,11 @@ class TaskDetector:
 
         if any(
             phrase in text_lower
-            for phrase in ["json", "format:", "structured", "{", "fields:"]
+            for phrase in ["json", "format:", "structured", "fields:"]
         ):
+            return OutputMode.STRUCTURED
+
+        if re.search(r"\{\s*[\"']?[a-z0-9_ -]+[\"']?\s*:", text_lower):
             return OutputMode.STRUCTURED
 
         # Task-type based defaults

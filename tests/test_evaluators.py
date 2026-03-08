@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from promptfoundry.evaluators.accuracy import ExactMatchEvaluator, FuzzyMatchEvaluator
+from promptfoundry.evaluators.accuracy import (
+    ExactMatchEvaluator,
+    FuzzyMatchEvaluator,
+    NumericAnswerEvaluator,
+)
 from promptfoundry.evaluators.custom import CompositeEvaluator, CustomFunctionEvaluator
 from promptfoundry.evaluators.format import ContainsEvaluator, RegexEvaluator
 
@@ -80,6 +84,12 @@ class TestExactMatchEvaluator:
         score = evaluator.evaluate("The final answer is 42.", "42")
         assert score == 0.0
 
+    def test_exact_match_allows_trivial_terminal_punctuation(self) -> None:
+        """Strict exact match should still accept bare answers with final punctuation."""
+        evaluator = ExactMatchEvaluator(normalize_output=False)
+        assert evaluator.evaluate("Positive.", "positive") == 1.0
+        assert evaluator.evaluate("The sentiment is positive.", "positive") == 0.0
+
 
 class TestFuzzyMatchEvaluator:
     """Tests for FuzzyMatchEvaluator."""
@@ -108,6 +118,28 @@ class TestFuzzyMatchEvaluator:
         assert evaluator.evaluate("", "") == 1.0
         assert evaluator.evaluate("test", "") == 0.0
         assert evaluator.evaluate("", "test") == 0.0
+
+
+class TestNumericAnswerEvaluator:
+    """Tests for NumericAnswerEvaluator."""
+
+    def test_numeric_answer_requires_bare_number_for_perfect_score(self) -> None:
+        """Bare numeric outputs should be the only perfect matches."""
+        evaluator = NumericAnswerEvaluator()
+        assert evaluator.evaluate("42", "42") == 1.0
+        assert evaluator.evaluate("42.", "42") == 1.0
+        assert evaluator.evaluate("The answer is 42.", "42") == pytest.approx(0.6)
+
+    def test_numeric_answer_rewards_correct_last_number_partially(self) -> None:
+        """A correct final number inside prose should still provide gradient."""
+        evaluator = NumericAnswerEvaluator()
+        assert evaluator.evaluate("Step 1: 10. Final answer: 42", "42") == pytest.approx(0.4)
+
+    def test_numeric_answer_rejects_wrong_numbers(self) -> None:
+        """Incorrect numeric outputs should still fail."""
+        evaluator = NumericAnswerEvaluator()
+        assert evaluator.evaluate("41", "42") == 0.0
+        assert evaluator.evaluate("The answer is forty-two.", "42") == 0.0
 
 
 class TestRegexEvaluator:
@@ -142,6 +174,12 @@ class TestRegexEvaluator:
         """Strict regex tasks should not score explanatory answers as exact hits."""
         evaluator = RegexEvaluator(pattern=r"\b{expected}\b", full_match=True)
         assert evaluator.evaluate("The answer is 42.", "42") == 0.0
+
+    def test_regex_full_match_allows_terminal_punctuation_only(self) -> None:
+        """Strict numeric regex tasks may accept a bare answer with terminal punctuation."""
+        evaluator = RegexEvaluator(pattern=r"\b{expected}\b", full_match=True)
+        assert evaluator.evaluate("42.", "42") == 1.0
+        assert evaluator.evaluate("42 apples remain.", "42") == 0.0
 
 
 class TestContainsEvaluator:

@@ -22,8 +22,8 @@ The tasks are not interchangeable. Some are intentionally strict to measure prom
 | Sentiment Classification | [examples/sentiment_task.yaml](../examples/sentiment_task.yaml) | `exact_match` with `normalize_output: false` | Triage of reviews, support feedback labeling, moderation queues, basic routing classifiers |
 | JSON Formatting | [examples/json_formatting_task.yaml](../examples/json_formatting_task.yaml) | `fuzzy_match` against exact JSON payload | LLM-to-system handoff, lightweight ETL, API payload drafting, document-to-JSON extraction |
 | Structured Extraction | [examples/extraction_task.yaml](../examples/extraction_task.yaml) | `fuzzy_match` against compact pipe-separated output | Contact extraction, product feed parsing, event detail capture, log-to-record normalization |
-| Arithmetic Reasoning | [examples/arithmetic_task.yaml](../examples/arithmetic_task.yaml) | `regex` with `{expected}` placeholder and `full_match: true` | Calculator-style assistants, invoice math verification, quantity checks, routing tasks that require a bare numeric result |
-| Word Math Problems | [examples/word_problems_task.yaml](../examples/word_problems_task.yaml) | `exact_match` with `normalize_output: false` | Higher-variance quantitative reasoning where prompt optimization must discover answer-only formatting |
+| Arithmetic Reasoning | [examples/arithmetic_task.yaml](../examples/arithmetic_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Calculator-style assistants, invoice math verification, quantity checks, routing tasks that require a bare numeric result |
+| Word Math Problems | [examples/word_problems_task.yaml](../examples/word_problems_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Higher-variance quantitative reasoning where prompt optimization must discover answer-only formatting |
 
 ---
 
@@ -31,7 +31,7 @@ The tasks are not interchangeable. Some are intentionally strict to measure prom
 
 ### 3.1 Strict-output tasks
 
-The following tasks are strict by design and should reject explanatory completions even when the semantic answer is correct:
+The following tasks are strict by design and should reject explanatory completions as perfect answers even when the semantic answer is correct:
 
 - Sentiment Classification
 - Arithmetic Reasoning
@@ -53,8 +53,8 @@ These tasks model situations where an output can improve gradually across genera
 The March 2026 audit corrected three issues in the shipped tasks:
 
 - Sentiment Classification no longer accepts verbose sentiment explanations as perfect label matches.
-- Word Math Problems no longer accept explanatory numeric answers as exact matches.
-- Arithmetic Reasoning now uses the documented `{expected}` regex placeholder correctly and enforces a bare numeric answer.
+- Word Math Problems no longer accept explanatory numeric answers as perfect scores.
+- Arithmetic Reasoning enforces a bare numeric answer for a perfect score while preserving partial credit when the correct number appears in prose.
 
 ---
 

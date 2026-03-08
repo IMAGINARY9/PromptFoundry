@@ -50,6 +50,7 @@ from promptfoundry.evaluators import (
     JsonSchemaEvaluator,
     KeywordPresenceEvaluator,
     LengthConstraintEvaluator,
+    NumericAnswerEvaluator,
     OutputShapeEvaluator,
     RegexEvaluator,
 )
@@ -133,6 +134,7 @@ def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
         # Accuracy evaluators
         "exact_match": lambda: ExactMatchEvaluator(**config),
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
+        "numeric_answer": lambda: NumericAnswerEvaluator(**config),
         # Format evaluators
         "regex": lambda: RegexEvaluator(**config),
         "contains": lambda: ContainsEvaluator(**config),
@@ -356,7 +358,17 @@ def optimize(
     effective_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create seed prompt
-    seed = Prompt(text=seed_prompt)
+    seed = Prompt(
+        text=seed_prompt,
+        metadata={
+            "task_name": task_obj.name,
+            "task_type_hint": task_obj.metadata.get("task_type"),
+            "output_format": task_obj.metadata.get("output_format"),
+            "evaluator_type": evaluator_type,
+            "evaluator_config": evaluator_config,
+            "task_metadata": task_obj.metadata,
+        },
+    )
     console.print("[green]✓[/green] Created seed prompt\n")
 
     # Progress tracking
@@ -1064,6 +1076,11 @@ def list_evaluators() -> None:
     table.add_row(
         "fuzzy_match",
         "Fuzzy string matching with Levenshtein distance",
+        "[blue]Accuracy[/blue]",
+    )
+    table.add_row(
+        "numeric_answer",
+        "Strict numeric scoring with partial credit for correct embedded numbers",
         "[blue]Accuracy[/blue]",
     )
 

@@ -177,10 +177,17 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         if self.evo_config.use_semantic_mutations:
             from promptfoundry.strategies.semantic_mutations import TaskDetector
 
-            task_type = TaskDetector.detect_task_type(seed_prompt.text)
-            output_mode = TaskDetector.detect_output_mode(seed_prompt.text, task_type)
+            task_type = TaskDetector.detect_task_type(seed_prompt.text, seed_prompt.metadata)
+            output_mode = TaskDetector.detect_output_mode(
+                seed_prompt.text,
+                task_type,
+                seed_prompt.metadata,
+            )
             self._detected_task_type = task_type.value
             self._detected_output_mode = output_mode.value
+        else:
+            task_type = None
+            output_mode = None
 
         # MVP 3: Reset diversity controller
         if self._diversity_controller:
@@ -216,8 +223,33 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 generation=0,
             )
 
-        # Generate variants through mutation
-        for _ in range(population_size - 1):
+        # Seed the initial population with a few task-aware variants so low-budget
+        # runs still explore viable strict-output prompts in generation 0.
+        for guided_prompt in self._generate_guided_seed_variants(
+            seed_prompt,
+            seen_texts,
+            population_size - 1,
+            task_type,
+            output_mode,
+        ):
+            seen_texts.add(guided_prompt.text)
+            individual = Individual(
+                prompt=guided_prompt,
+                generation=0,
+                parent_ids=[seed_prompt.id],
+            )
+            individuals.append(individual)
+            if self._diversity_controller:
+                self._diversity_controller.register_prompt(
+                    prompt_id=individual.id,
+                    text=guided_prompt.text,
+                    generation=0,
+                    parent_ids=[seed_prompt.id],
+                    mutation_operator=guided_prompt.metadata.get("mutation_operator"),
+                )
+
+        # Generate remaining variants through mutation
+        while len(individuals) < population_size:
             mutated = self._create_unique_prompt(seed_prompt, seen_texts)
             seen_texts.add(mutated.text)
             individual = Individual(
@@ -238,6 +270,116 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 )
 
         return Population(individuals=individuals, generation=0)
+
+    def _generate_guided_seed_variants(
+        self,
+        seed_prompt: Prompt,
+        seen_texts: set[str],
+        limit: int,
+        task_type: Any,
+        output_mode: Any,
+    ) -> list[Prompt]:
+        """Build deterministic high-signal seed variants for low-budget runs."""
+        if limit <= 0:
+            return []
+
+        task_value = getattr(task_type, "value", None)
+        variants: list[Prompt] = []
+        recipes: list[tuple[str, list[Any]]] = []
+
+        if task_value == "classification":
+            recipes.extend(
+                [
+                    (
+                        "guided_label_exact",
+                        [
+                            self._mutate_add_answer_only_directive,
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [
+                                    " Return exactly one label.",
+                                    " Answer with one label only and no punctuation.",
+                                ],
+                            ),
+                        ],
+                    ),
+                    (
+                        "guided_label_suppressed",
+                        [
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [" Output only the classification label. No explanation."],
+                            ),
+                            self._mutate_add_constraint,
+                        ],
+                    ),
+                ]
+            )
+        elif task_value == "numeric":
+            recipes.extend(
+                [
+                    (
+                        "guided_numeric_digits",
+                        [
+                            self._mutate_add_answer_only_directive,
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [
+                                    " Return only the number.",
+                                    " Output digits only with no words or units.",
+                                ],
+                            ),
+                        ],
+                    ),
+                    (
+                        "guided_numeric_verified",
+                        [
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [
+                                    " Provide the final numeric result only. No words, units, or explanation.",
+                                ],
+                            ),
+                            self._mutate_add_verification_directive,
+                        ],
+                    ),
+                    (
+                        "guided_numeric_structured",
+                        [
+                            self._mutate_promote_structured_layout,
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [" If the answer is numeric, output digits only with no words or units."],
+                            ),
+                        ],
+                    ),
+                ]
+            )
+
+        for recipe_name, transforms in recipes:
+            if len(variants) >= limit:
+                break
+            text = seed_prompt.text
+            for transform in transforms:
+                text = transform(text)
+            normalized = self._normalize_prompt_text(
+                self._preserve_required_placeholders(seed_prompt.text, text)
+            )
+            if normalized == seed_prompt.text or normalized in seen_texts:
+                continue
+            variants.append(
+                self._copy_prompt(
+                    seed_prompt,
+                    text=normalized,
+                    metadata_updates={
+                        "mutation_operator": recipe_name,
+                        "mutation_base_weight": 2.0,
+                        "parent_baseline_fitness": None,
+                    },
+                )
+            )
+
+        return variants
 
     def evolve(
         self,
@@ -1014,9 +1156,9 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         """Add a directive that suppresses verbose explanations."""
         directives = [
             " Respond with only the final answer.",
-            " Return only the final answer.",
+            " Return only the final answer with no explanation.",
             " Output only the answer and nothing else.",
-            " Give the answer with no explanation.",
+            " Give only the final answer. No explanation or extra text.",
         ]
         return self._append_first_missing_clause(text, directives)
 
@@ -1040,8 +1182,8 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
         directives = [
             " Return only the number.",
-            " If the answer is numeric, output digits only.",
-            " Provide the final numeric result only.",
+            " If the answer is numeric, output digits only with no words or units.",
+            " Provide the final numeric result only. No words, units, or explanation.",
         ]
         return self._append_first_missing_clause(text, directives)
 
@@ -1062,8 +1204,8 @@ class GeneticAlgorithmStrategy(BaseStrategy):
 
         directives = [
             " Return exactly one label.",
-            " Answer with one label only.",
-            " Output only the classification label.",
+            " Answer with one label only and no punctuation.",
+            " Output only the classification label. No explanation.",
         ]
         return self._append_first_missing_clause(text, directives)
 

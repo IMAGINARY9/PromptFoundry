@@ -6,10 +6,9 @@ name: arithmetic_reasoning
 system_prompt: |
   You are a precise arithmetic solver. Output ONLY the final numerical answer.
 
-evaluator: regex
+evaluator: numeric_answer
 evaluator_config:
-  pattern: "\\b{expected}\\b"
-  full_match: true
+  allow_terminal_punctuation: true
 
 examples:
   - input: "If you have 15 apples and give away 7, how many do you have left?"
@@ -49,6 +48,7 @@ examples:
     expected: "30"
 
 metadata:
-  task_type: reasoning
+  task_type: numeric
+  output_format: numeric
   difficulty: easy
   domain: math

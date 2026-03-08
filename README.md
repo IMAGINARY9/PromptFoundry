@@ -16,7 +16,7 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 
 - 🧬 **Evolutionary optimization**: Genetic algorithms with mutation/crossover
 - 🔌 **LLM-agnostic**: Works with any OpenAI-compatible API (including local models)
-- 📊 **Multiple evaluators**: Exact match, fuzzy match, regex, custom functions
+- 📊 **Multiple evaluators**: Exact match, fuzzy match, regex, strict numeric-answer scoring, custom functions
 - 🚀 **Rate limiting**: Built-in token bucket for API compliance  
 - 📈 **Progress tracking**: Rich CLI with progress bars, per-generation timing, and cancelable runs
 - ⚡ **Caching & concurrency**: Avoids duplicate LLM requests and evaluates examples in parallel

@@ -413,7 +413,7 @@ class Optimizer:
         async def _score_example(
             ind: Individual,
             example: Example,
-        ) -> tuple[float, str, str, bool]:
+        ) -> tuple[float, str, str, bool, str | None]:
             prompt_text = self._format_prompt(ind.prompt, example)
             key = (
                 ind.prompt.text,
@@ -423,8 +423,9 @@ class Optimizer:
             )
             if key in self._score_cache:
                 cached = self._score_cache[key]
-                return cached.score, cached.prompt_text, cached.completion, True
+                return cached.score, cached.prompt_text, cached.completion, True, None
 
+            error_message: str | None = None
             try:
                 async with self._sem:
                     completion = await self.llm_client.complete(
@@ -435,7 +436,8 @@ class Optimizer:
                     example.expected_output,
                     example.metadata,
                 )
-            except Exception:
+            except Exception as exc:
+                error_message = f"{type(exc).__name__}: {exc}"
                 completion = ""
                 score = 0.0
 
@@ -444,7 +446,7 @@ class Optimizer:
                 prompt_text=prompt_text,
                 completion=completion,
             )
-            return score, prompt_text, completion, False
+            return score, prompt_text, completion, False, error_message
 
         scores: list[float] = []
         interactions: list[dict[str, Any]] = []
@@ -456,7 +458,7 @@ class Optimizer:
                     ind: Individual = ind,
                     ex: Example = ex,
                 ) -> float:
-                    sc, prompt_text, completion, from_cache = await _score_example(ind, ex)
+                    sc, prompt_text, completion, from_cache, error_message = await _score_example(ind, ex)
                     interactions.append(
                         {
                             "prompt": prompt_text,
@@ -464,6 +466,7 @@ class Optimizer:
                             "expected": ex.expected_output,
                             "score": sc,
                             "cached": from_cache,
+                            **({"error": error_message} if error_message else {}),
                         }
                     )
                     return sc

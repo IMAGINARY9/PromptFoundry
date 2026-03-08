@@ -64,6 +64,13 @@ class TestTaskDetector:
         prompt = "Process this data"
         assert TaskDetector.detect_task_type(prompt) == TaskType.UNKNOWN
 
+    def test_detect_numeric_task_from_metadata_hint(self) -> None:
+        """Task metadata should help classify generic math prompts."""
+        prompt = "Solve: {input}"
+        metadata = {"task_type_hint": "math_reasoning"}
+
+        assert TaskDetector.detect_task_type(prompt, metadata) == TaskType.NUMERIC
+
     def test_detect_output_mode_exact_match(self) -> None:
         """Test exact match output mode detection."""
         prompt = "Return only the answer: {input}"
@@ -75,6 +82,12 @@ class TestTaskDetector:
         prompt = "Output as JSON: {input}"
         task_type = TaskType.EXTRACTION
         assert TaskDetector.detect_output_mode(prompt, task_type) == OutputMode.STRUCTURED
+
+    def test_detect_output_mode_ignores_input_placeholder_braces(self) -> None:
+        """Template placeholders should not be mistaken for structured JSON output."""
+        prompt = "Classify the sentiment: {input}"
+
+        assert TaskDetector.detect_output_mode(prompt, TaskType.CLASSIFICATION) == OutputMode.LABEL
 
     def test_detect_output_mode_from_task_type(self) -> None:
         """Test output mode inference from task type."""

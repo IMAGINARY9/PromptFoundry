@@ -27,6 +27,7 @@ class RegexEvaluator(BaseEvaluator):
         full_match: bool = False,
         case_sensitive: bool = False,
         strip_whitespace: bool = True,
+        allow_terminal_punctuation: bool = True,
     ) -> None:
         """Initialize the regex evaluator.
 
@@ -41,6 +42,7 @@ class RegexEvaluator(BaseEvaluator):
         self.pattern = pattern
         self.use_expected_as_pattern = use_expected_as_pattern
         self.full_match = full_match
+        self.allow_terminal_punctuation = allow_terminal_punctuation
 
         # Pre-compile fixed patterns that do not depend on the expected value.
         self._compiled_pattern: re.Pattern[str] | None = None
@@ -95,6 +97,9 @@ class RegexEvaluator(BaseEvaluator):
         # Match
         if self.full_match:
             match = pattern.fullmatch(pred)
+            if not match and self.allow_terminal_punctuation:
+                trimmed = re.sub(r"[\s.!?,;:]+$", "", pred)
+                match = pattern.fullmatch(trimmed)
         else:
             match = pattern.search(pred)
 
@@ -108,6 +113,7 @@ class RegexEvaluator(BaseEvaluator):
                 "pattern": self.pattern,
                 "use_expected_as_pattern": self.use_expected_as_pattern,
                 "full_match": self.full_match,
+                "allow_terminal_punctuation": self.allow_terminal_punctuation,
             }
         )
         return info

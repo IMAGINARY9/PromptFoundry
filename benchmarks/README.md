@@ -32,7 +32,7 @@ python scripts/run_benchmarks.py --llm-url http://localhost:8080/v1
 
 3. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
    - Solve word math problems
-   - Evaluator: regex with `{expected}` placeholder and full-string numeric match
+   - Evaluator: numeric_answer with strict bare-number perfect scoring and prose partial credit
    - 12 examples
 
 For the full bundled task catalog, real-world use cases, and evaluator contract notes, see [docs/TASKS.md](../docs/TASKS.md).

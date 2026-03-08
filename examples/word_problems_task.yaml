@@ -32,10 +32,9 @@ system_prompt: |
   You are a precise math solver. When asked for a number, output ONLY the number.
   No explanation, no units, no sentence — just the bare numeric answer.
 
-evaluator: exact_match
+evaluator: numeric_answer
 evaluator_config:
-  case_sensitive: false
-  normalize_output: false
+  allow_terminal_punctuation: true
 
 examples:
   # ── basic multi-step ─────────────────────────────────────────────────────
@@ -98,10 +97,12 @@ validation_examples:
 
 metadata:
   task_type: math_reasoning
+  output_format: numeric
   difficulty: medium
   requires_chain_of_thought: true
   why_hard: >
     Bare seed prompts produce verbose answers ("The answer is 21.") which fail
-    exact_match. The optimizer must discover that adding a strict output-format
-    instruction (e.g., "Respond with only the answer.") dramatically increases
-    the fitness score.
+    the strict numeric scoring contract. The optimizer must discover that adding
+    a strict output-format instruction (e.g., "Respond with only the answer.")
+    dramatically increases the fitness score from partial-credit prose toward a
+    true numeric-only answer.

@@ -6,6 +6,8 @@ string matching (exact or fuzzy).
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 from promptfoundry.evaluators.base import BaseEvaluator
@@ -23,10 +25,12 @@ class ExactMatchEvaluator(BaseEvaluator):
         case_sensitive: bool = False,
         strip_whitespace: bool = True,
         normalize_output: bool = True,
+        allow_terminal_punctuation: bool = True,
     ) -> None:
         """Initialize exact-match evaluation behavior."""
         super().__init__(case_sensitive, strip_whitespace)
         self.normalize_output = normalize_output
+        self.allow_terminal_punctuation = allow_terminal_punctuation
 
     def evaluate(
         self,
@@ -54,12 +58,128 @@ class ExactMatchEvaluator(BaseEvaluator):
                     case_sensitive=self.case_sensitive,
                 )
             )
+        elif self.allow_terminal_punctuation and pred != exp:
+            pred = self._preprocess(self._strip_terminal_punctuation(predicted))
+            exp = self._preprocess(self._strip_terminal_punctuation(expected))
         return 1.0 if pred == exp else 0.0
+
+    @staticmethod
+    def _strip_terminal_punctuation(text: str) -> str:
+        """Strip trivial trailing punctuation without recovering explanations."""
+        return re.sub(r"[\s.!?,;:]+$", "", text.strip())
 
     def get_evaluator_info(self) -> dict[str, Any]:
         """Return evaluator metadata including normalization behavior."""
         info = super().get_evaluator_info()
         info["normalize_output"] = self.normalize_output
+        info["allow_terminal_punctuation"] = self.allow_terminal_punctuation
+        return info
+
+
+class NumericAnswerEvaluator(BaseEvaluator):
+    """Evaluator for strict numeric-answer tasks with partial format credit.
+
+    A perfect score is reserved for bare numeric answers only. Outputs that
+    contain the correct number inside additional prose receive partial credit
+    so the optimizer retains useful signal without over-scoring verbose answers.
+    """
+
+    _BARE_NUMBER_PATTERN = re.compile(r"[-+]?(?:\d[\d,]*\.?\d*|\.\d+)")
+    _EMBEDDED_NUMBER_PATTERN = re.compile(r"[-+]?(?:\$)?(?:\d[\d,]*\.?\d*|\.\d+)")
+
+    def __init__(
+        self,
+        case_sensitive: bool = False,
+        strip_whitespace: bool = True,
+        allow_terminal_punctuation: bool = True,
+        prose_partial_credit: float = 0.6,
+        last_number_partial_credit: float = 0.4,
+        embedded_number_partial_credit: float = 0.25,
+    ) -> None:
+        """Initialize the numeric-answer evaluator.
+
+        Args:
+            case_sensitive: Unused, kept for evaluator interface consistency.
+            strip_whitespace: Whether to trim leading/trailing whitespace.
+            allow_terminal_punctuation: Whether to accept bare answers like `42.`.
+            prose_partial_credit: Score when the only number is correct but wrapped in prose.
+            last_number_partial_credit: Score when the final number is correct among many numbers.
+            embedded_number_partial_credit: Score when the correct number appears but is not final.
+        """
+        super().__init__(case_sensitive=case_sensitive, strip_whitespace=strip_whitespace)
+        self.allow_terminal_punctuation = allow_terminal_punctuation
+        self.prose_partial_credit = prose_partial_credit
+        self.last_number_partial_credit = last_number_partial_credit
+        self.embedded_number_partial_credit = embedded_number_partial_credit
+
+    def evaluate(
+        self,
+        predicted: str,
+        expected: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> float:
+        """Score numeric answers while keeping numeric-only outputs strict."""
+        del metadata
+        expected_number = self._parse_number(expected)
+        if expected_number is None:
+            return 0.0
+
+        bare_prediction = self._extract_bare_number(predicted)
+        if bare_prediction is not None and bare_prediction == expected_number:
+            return 1.0
+
+        extracted_numbers = self._extract_numbers(predicted)
+        if not extracted_numbers:
+            return 0.0
+
+        matching_indexes = [index for index, number in enumerate(extracted_numbers) if number == expected_number]
+        if not matching_indexes:
+            return 0.0
+
+        if len(extracted_numbers) == 1:
+            return self.prose_partial_credit
+        if matching_indexes[-1] == len(extracted_numbers) - 1:
+            return self.last_number_partial_credit
+        return self.embedded_number_partial_credit
+
+    def _extract_bare_number(self, text: str) -> Decimal | None:
+        candidate = text.strip() if self.strip_whitespace else text
+        if self.allow_terminal_punctuation:
+            candidate = ExactMatchEvaluator._strip_terminal_punctuation(candidate)
+        if not self._BARE_NUMBER_PATTERN.fullmatch(candidate):
+            return None
+        return self._parse_number(candidate)
+
+    def _extract_numbers(self, text: str) -> list[Decimal]:
+        numbers: list[Decimal] = []
+        for match in self._EMBEDDED_NUMBER_PATTERN.finditer(text):
+            parsed = self._parse_number(match.group(0))
+            if parsed is not None:
+                numbers.append(parsed)
+        return numbers
+
+    @staticmethod
+    def _parse_number(text: str) -> Decimal | None:
+        cleaned = text.strip()
+        cleaned = re.sub(r"^[^\d+\-.]+", "", cleaned)
+        cleaned = re.sub(r"[^\d.\-+,]+$", "", cleaned)
+        cleaned = cleaned.replace(",", "")
+        if not cleaned:
+            return None
+        try:
+            return Decimal(cleaned)
+        except InvalidOperation:
+            return None
+
+    def get_evaluator_info(self) -> dict[str, Any]:
+        """Return evaluator information including partial-credit behavior."""
+        info = super().get_evaluator_info()
+        info.update({
+            "allow_terminal_punctuation": self.allow_terminal_punctuation,
+            "prose_partial_credit": self.prose_partial_credit,
+            "last_number_partial_credit": self.last_number_partial_credit,
+            "embedded_number_partial_credit": self.embedded_number_partial_credit,
+        })
         return info
 
 

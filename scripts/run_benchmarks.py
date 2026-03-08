@@ -30,7 +30,12 @@ from promptfoundry.core import (
     Prompt,
     Task,
 )
-from promptfoundry.evaluators import ExactMatchEvaluator, FuzzyMatchEvaluator, RegexEvaluator
+from promptfoundry.evaluators import (
+    ExactMatchEvaluator,
+    FuzzyMatchEvaluator,
+    NumericAnswerEvaluator,
+    RegexEvaluator,
+)
 from promptfoundry.llm import LLMConfig, OpenAICompatClient
 from promptfoundry.strategies import GeneticAlgorithmStrategy
 from promptfoundry.strategies.evolutionary import EvolutionaryConfig
@@ -68,6 +73,7 @@ def get_evaluator(evaluator_type: str, config: dict):
     evaluators = {
         "exact_match": lambda: ExactMatchEvaluator(**config),
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
+        "numeric_answer": lambda: NumericAnswerEvaluator(**config),
         "regex": lambda: RegexEvaluator(**config),
     }
 

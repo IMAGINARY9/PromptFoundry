@@ -313,6 +313,20 @@ class TestGeneticAlgorithmStrategy:
         assert mutated != "Answer the question: What is 7 minus 2?"
         assert "number" in mutated.lower() or "digits only" in mutated.lower() or "numeric" in mutated.lower()
 
+    def test_initialize_uses_guided_variants_for_numeric_task(
+        self, strategy: GeneticAlgorithmStrategy
+    ) -> None:
+        """Low-budget numeric runs should start with stronger constrained variants."""
+        prompt = Prompt(
+            text="Solve: {input}",
+            metadata={"task_type_hint": "math_reasoning", "evaluator_type": "exact_match"},
+        )
+
+        population = strategy.initialize(prompt, population_size=4)
+        texts = [individual.prompt.text for individual in population[1:]]
+
+        assert any("number" in text.lower() or "digits only" in text.lower() for text in texts)
+
     def test_initialize_generates_unique_variants_for_short_seed(
         self, strategy: GeneticAlgorithmStrategy
     ) -> None:

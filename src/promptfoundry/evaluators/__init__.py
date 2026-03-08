@@ -1,6 +1,10 @@
 """Evaluators (objective functions) for PromptFoundry."""
 
-from promptfoundry.evaluators.accuracy import ExactMatchEvaluator, FuzzyMatchEvaluator
+from promptfoundry.evaluators.accuracy import (
+    ExactMatchEvaluator,
+    FuzzyMatchEvaluator,
+    NumericAnswerEvaluator,
+)
 from promptfoundry.evaluators.base import BaseEvaluator
 from promptfoundry.evaluators.custom import CompositeEvaluator, CustomFunctionEvaluator
 from promptfoundry.evaluators.format import ContainsEvaluator, RegexEvaluator
@@ -27,6 +31,7 @@ __all__ = [
     # Accuracy evaluators
     "ExactMatchEvaluator",
     "FuzzyMatchEvaluator",
+    "NumericAnswerEvaluator",
     # Format evaluators
     "ContainsEvaluator",
     "RegexEvaluator",

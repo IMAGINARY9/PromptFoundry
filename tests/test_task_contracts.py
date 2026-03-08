@@ -58,11 +58,13 @@ class TestBundledTaskContracts:
         _task, evaluator = _load_bundled_task("arithmetic_task.yaml")
 
         assert evaluator.evaluate("8", "8") == 1.0
-        assert evaluator.evaluate("The answer is 8.", "8") == 0.0
+        assert evaluator.evaluate("8.", "8") == 1.0
+        assert 0.0 < evaluator.evaluate("The answer is 8.", "8") < 1.0
 
     def test_word_problem_task_requires_bare_numeric_answer(self) -> None:
         """Word-problem benchmark is intentionally strict to expose formatting gains."""
         _task, evaluator = _load_bundled_task("word_problems_task.yaml")
 
         assert evaluator.evaluate("21", "21") == 1.0
-        assert evaluator.evaluate("The answer is 21.", "21") == 0.0
+        assert evaluator.evaluate("21.", "21") == 1.0
+        assert 0.0 < evaluator.evaluate("The answer is 21.", "21") < 1.0
