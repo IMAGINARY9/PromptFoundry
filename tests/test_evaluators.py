@@ -9,10 +9,12 @@ import pytest
 from promptfoundry.evaluators.accuracy import (
     ExactMatchEvaluator,
     FuzzyMatchEvaluator,
+    LabelAnswerEvaluator,
     NumericAnswerEvaluator,
 )
 from promptfoundry.evaluators.custom import CompositeEvaluator, CustomFunctionEvaluator
 from promptfoundry.evaluators.format import ContainsEvaluator, RegexEvaluator
+from promptfoundry.evaluators.proxy_metrics import JsonValueCoverageEvaluator
 
 
 class TestExactMatchEvaluator:
@@ -140,6 +142,57 @@ class TestNumericAnswerEvaluator:
         evaluator = NumericAnswerEvaluator()
         assert evaluator.evaluate("41", "42") == 0.0
         assert evaluator.evaluate("The answer is forty-two.", "42") == 0.0
+
+
+class TestLabelAnswerEvaluator:
+    """Tests for LabelAnswerEvaluator."""
+
+    def test_label_answer_requires_bare_label_for_perfect_score(self) -> None:
+        """Bare label outputs should be the only perfect matches."""
+        evaluator = LabelAnswerEvaluator(allowed_labels=["billing/refund", "support/bug"])
+        assert evaluator.evaluate("billing/refund", "billing/refund") == 1.0
+        assert evaluator.evaluate("billing/refund.", "billing/refund") == 1.0
+
+    def test_label_answer_rewards_explicit_embedded_choice_partially(self) -> None:
+        """Explicit final-answer cues should produce conservative partial credit."""
+        evaluator = LabelAnswerEvaluator(allowed_labels=["billing/refund", "support/bug"])
+        assert evaluator.evaluate(
+            "After reviewing the issue, the final answer is billing/refund.",
+            "billing/refund",
+        ) == pytest.approx(0.75)
+
+    def test_label_answer_infers_selected_label_from_reasoning(self) -> None:
+        """Positive-vs-negative rubric analysis should still provide gradient."""
+        evaluator = LabelAnswerEvaluator(
+            allowed_labels=["billing/refund", "billing/invoice", "support/bug"],
+        )
+        score = evaluator.evaluate(
+            "billing/refund fits perfectly for the duplicate charge. billing/invoice is unlikely here.",
+            "billing/refund",
+        )
+        assert score == pytest.approx(0.55)
+
+
+class TestJsonValueCoverageEvaluator:
+    """Tests for JsonValueCoverageEvaluator."""
+
+    def test_json_value_coverage_scores_embedded_values(self) -> None:
+        """Verbose analysis that mentions all expected values should score fully."""
+        evaluator = JsonValueCoverageEvaluator()
+        score = evaluator.evaluate(
+            "incident INC-4821, severity Sev-1, owner Maya Singh, customer Northwind Retail, due 2026-03-15",
+            '{"incident_id": "INC-4821", "severity": "sev-1", "owner": "Maya Singh", "customer": "Northwind Retail", "due_date": "2026-03-15"}',
+        )
+        assert score == 1.0
+
+    def test_json_value_coverage_ignores_null_values(self) -> None:
+        """Null-valued expected fields should not reduce coverage."""
+        evaluator = JsonValueCoverageEvaluator()
+        score = evaluator.evaluate(
+            "Tailspin Toys incident INC-5120 remains Sev-3. Owner: Jordan Alvarez.",
+            '{"incident_id": "INC-5120", "severity": "sev-3", "owner": "Jordan Alvarez", "customer": "Tailspin Toys", "due_date": null}',
+        )
+        assert score == 1.0
 
 
 class TestRegexEvaluator:

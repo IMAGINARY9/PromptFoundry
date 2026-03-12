@@ -78,3 +78,20 @@ class TestBundledTaskContracts:
 
         assert evaluator.evaluate(expected, expected) == 1.0
         assert 0.0 < evaluator.evaluate(missing_null, expected) < 1.0
+
+    def test_hierarchical_intent_task_requires_single_route_label(self) -> None:
+        """Hierarchical routing should still enforce a strict single-label contract."""
+        _task, evaluator = _load_bundled_task("hierarchical_intent_task.yaml")
+
+        assert evaluator.evaluate("billing/refund", "billing/refund") == 1.0
+        assert evaluator.evaluate("billing/refund because the user wants money back", "billing/refund") == 0.0
+
+    def test_long_context_task_rewards_complete_structured_extraction(self) -> None:
+        """Long-context extraction should preserve partial credit for incomplete JSON."""
+        _task, evaluator = _load_bundled_task("long_context_extraction_task.yaml")
+
+        expected = '{"incident_id": "INC-4821", "severity": "sev-1", "owner": "Maya Singh", "customer": "Northwind Retail", "due_date": "2026-03-15"}'
+        incomplete = '{"incident_id": "INC-4821", "severity": "sev-1", "owner": "Maya Singh"}'
+
+        assert evaluator.evaluate(expected, expected) == 1.0
+        assert 0.0 < evaluator.evaluate(incomplete, expected) < 1.0

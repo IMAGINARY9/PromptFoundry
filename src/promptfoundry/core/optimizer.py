@@ -12,6 +12,7 @@ import base64
 import json
 import pickle
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from promptfoundry.core.history import OptimizationHistory, OptimizationResult
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
+from promptfoundry.evaluators import JsonParseEvaluator, LabelAnswerEvaluator
 
 if TYPE_CHECKING:
     from promptfoundry.core.protocols import Evaluator, LLMClient, OptimizationStrategy
@@ -143,6 +145,8 @@ class CachedEvaluation:
     score: float
     prompt_text: str
     completion: str
+    raw_completion: str | None = None
+    evaluation_details: dict[str, Any] | None = None
 
 
 class Optimizer:
@@ -250,6 +254,7 @@ class Optimizer:
 
         # Main optimization loop
         best_lineage_report: dict[str, Any] | None = None
+        operator_stats: dict[str, Any] = {}
         while not self._should_terminate():
             # Track generation timing
             gen_start_time = time.time()
@@ -257,7 +262,10 @@ class Optimizer:
 
             # Evaluate current population
             try:
-                fitness_scores, interactions = await self._evaluate_population(population, task)
+                fitness_scores, interactions, stage_feedback = await self._evaluate_population(
+                    population,
+                    task,
+                )
             except asyncio.CancelledError:
                 # optimization was cancelled (e.g. Ctrl-C); stop early
                 self._state.termination_reason = "interrupted"
@@ -266,6 +274,8 @@ class Optimizer:
             # record interactions in global state for result
             if interactions:
                 self._state.interactions.extend(interactions)
+            if stage_feedback and hasattr(self.strategy, "record_stage_feedback"):
+                self.strategy.record_stage_feedback(population, stage_feedback)
 
             # Calculate generation metrics
             gen_elapsed_ms = (time.time() - gen_start_time) * 1000
@@ -289,7 +299,6 @@ class Optimizer:
                 generation=self._state.current_generation,
             )
 
-            operator_stats: dict[str, Any] = {}
             generation_operator_summary: dict[str, Any] = {}
             if hasattr(self.strategy, "record_generation_feedback"):
                 self.strategy.record_generation_feedback(evaluated_pop, fitness_scores)
@@ -320,6 +329,8 @@ class Optimizer:
             if interactions:
                 # store raw prompts/completions for debugging
                 metadata["interactions"] = interactions
+            if stage_feedback:
+                metadata["stage_feedback"] = stage_feedback
             if operator_stats:
                 metadata["operator_stats"] = operator_stats
             if generation_operator_summary:
@@ -378,42 +389,44 @@ class Optimizer:
         self,
         population: Population,
         task: Task,
-    ) -> tuple[list[float], list[dict[str, Any]]]:
+    ) -> tuple[list[float], list[dict[str, Any]], dict[str, dict[str, Any]]]:
         """Evaluate an entire population and record interactions.
 
         Returns:
-            Tuple of (fitness scores list, interactions list).
+            Tuple of (fitness scores list, interactions list, per-prompt stage feedback).
         """
         fitness_scores: list[float] = []
         interactions: list[dict[str, Any]] = []
+        stage_feedback: dict[str, dict[str, Any]] = {}
 
         # Process in batches for efficiency
         for i in range(0, len(population), self.config.batch_size):
             batch = population.individuals[i : i + self.config.batch_size]
-            batch_scores, batch_interactions = await self._evaluate_batch(
+            batch_scores, batch_interactions, batch_stage_feedback = await self._evaluate_batch(
                 batch, task.examples, task.system_prompt
             )
             fitness_scores.extend(batch_scores)
             interactions.extend(batch_interactions)
+            stage_feedback.update(batch_stage_feedback)
 
-        return fitness_scores, interactions
+        return fitness_scores, interactions, stage_feedback
 
     async def _evaluate_batch(
         self,
         individuals: list[Individual],
         examples: list[Example],
         system_prompt: str | None = None,
-    ) -> tuple[list[float], list[dict[str, Any]]]:
+    ) -> tuple[list[float], list[dict[str, Any]], dict[str, dict[str, Any]]]:
         """Evaluate a batch of individuals against examples.
 
         Returns:
-            Tuple of (fitness scores, interaction log).
+            Tuple of (fitness scores, interaction log, per-prompt stage feedback).
         """
 
         async def _score_example(
             ind: Individual,
             example: Example,
-        ) -> tuple[float, str, str, bool, str | None]:
+        ) -> tuple[float, str, str, str | None, bool, str | None, dict[str, Any] | None]:
             prompt_text = self._format_prompt(ind.prompt, example)
             key = (
                 ind.prompt.text,
@@ -423,19 +436,43 @@ class Optimizer:
             )
             if key in self._score_cache:
                 cached = self._score_cache[key]
-                return cached.score, cached.prompt_text, cached.completion, True, None
+                return (
+                    cached.score,
+                    cached.prompt_text,
+                    cached.completion,
+                    cached.raw_completion,
+                    True,
+                    None,
+                    cached.evaluation_details,
+                )
 
             error_message: str | None = None
+            evaluation_details: dict[str, Any] | None = None
+            raw_completion: str | None = None
             try:
                 async with self._sem:
-                    completion = await self.llm_client.complete(
+                    raw_completion = await self.llm_client.complete(
                         prompt_text, system_prompt=system_prompt
                     )
-                score = self.evaluator.evaluate(
-                    completion,
-                    example.expected_output,
-                    example.metadata,
+                completion = self._normalize_completion_output(
+                    raw_completion,
+                    ind.prompt,
+                    example,
                 )
+                if hasattr(self.evaluator, "evaluate_detailed"):
+                    detailed = self.evaluator.evaluate_detailed(
+                        completion,
+                        example.expected_output,
+                        example.metadata,
+                    )
+                    score = detailed.final_score
+                    evaluation_details = self._serialize_evaluation_details(detailed)
+                else:
+                    score = self.evaluator.evaluate(
+                        completion,
+                        example.expected_output,
+                        example.metadata,
+                    )
             except Exception as exc:
                 error_message = f"{type(exc).__name__}: {exc}"
                 completion = ""
@@ -445,27 +482,54 @@ class Optimizer:
                 score=score,
                 prompt_text=prompt_text,
                 completion=completion,
+                raw_completion=raw_completion if raw_completion != completion else None,
+                evaluation_details=evaluation_details,
             )
-            return score, prompt_text, completion, False, error_message
+            return (
+                score,
+                prompt_text,
+                completion,
+                raw_completion if raw_completion != completion else None,
+                False,
+                error_message,
+                evaluation_details,
+            )
 
         scores: list[float] = []
         interactions: list[dict[str, Any]] = []
+        stage_feedback: dict[str, dict[str, Any]] = {}
 
         for ind in individuals:
             tasks = []
+            stage_counts: dict[str, int] = {}
             for ex in examples:
                 async def _task(
                     ind: Individual = ind,
                     ex: Example = ex,
                 ) -> float:
-                    sc, prompt_text, completion, from_cache, error_message = await _score_example(ind, ex)
+                    (
+                        sc,
+                        prompt_text,
+                        completion,
+                        raw_completion,
+                        from_cache,
+                        error_message,
+                        evaluation_details,
+                    ) = await _score_example(ind, ex)
+                    dominant_stage = None
+                    if evaluation_details:
+                        dominant_stage = evaluation_details.get("dominant_stage")
+                        if dominant_stage:
+                            stage_counts[dominant_stage] = stage_counts.get(dominant_stage, 0) + 1
                     interactions.append(
                         {
                             "prompt": prompt_text,
                             "completion": completion,
+                            **({"raw_completion": raw_completion} if raw_completion else {}),
                             "expected": ex.expected_output,
                             "score": sc,
                             "cached": from_cache,
+                            **({"evaluation_details": evaluation_details} if evaluation_details else {}),
                             **({"error": error_message} if error_message else {}),
                         }
                     )
@@ -475,7 +539,215 @@ class Optimizer:
             fitness = self.evaluator.aggregate(ind_scores)
             scores.append(fitness)
 
-        return scores, interactions
+            if stage_counts:
+                dominant_stage = max(stage_counts.items(), key=lambda item: item[1])[0]
+                stage_feedback[ind.prompt.id] = {
+                    "dominant_stage": dominant_stage,
+                    "stage_counts": stage_counts,
+                }
+
+        return scores, interactions, stage_feedback
+
+    def _serialize_evaluation_details(self, detailed_result: Any) -> dict[str, Any] | None:
+        """Serialize detailed evaluator output into interaction-safe metadata."""
+        if not hasattr(detailed_result, "stage_results"):
+            return None
+
+        stage_results = []
+        dominant_stage: str | None = getattr(detailed_result, "early_exit_stage", None)
+        weakest_score = 1.1
+
+        for stage_result in getattr(detailed_result, "stage_results", []):
+            stage_results.append(
+                {
+                    "stage_name": stage_result.stage_name,
+                    "score": stage_result.score,
+                    "passed": stage_result.passed,
+                    "skipped": stage_result.skipped,
+                }
+            )
+            if not stage_result.skipped and stage_result.score < weakest_score:
+                weakest_score = stage_result.score
+                dominant_stage = stage_result.stage_name
+
+        return {
+            "final_score": detailed_result.final_score,
+            "stages_completed": getattr(detailed_result, "stages_completed", 0),
+            "early_exit": getattr(detailed_result, "early_exit", False),
+            "early_exit_stage": getattr(detailed_result, "early_exit_stage", None),
+            "dominant_stage": dominant_stage,
+            "stage_results": stage_results,
+        }
+
+    def _normalize_completion_output(
+        self,
+        completion: str,
+        prompt: Prompt,
+        example: Example,
+    ) -> str:
+        """Normalize verbose model traces down to the best final-answer candidate."""
+        cleaned = self._strip_hidden_reasoning(completion)
+        task_metadata = prompt.metadata.get("task_metadata", {})
+        output_format = str(
+            prompt.metadata.get("output_format", task_metadata.get("output_format", ""))
+        ).lower()
+
+        if output_format == "label":
+            allowed_labels = task_metadata.get("allowed_labels", [])
+            if isinstance(allowed_labels, list):
+                label_evaluator = LabelAnswerEvaluator(
+                    allowed_labels=[str(label) for label in allowed_labels],
+                )
+                normalized_labels = label_evaluator._get_allowed_labels(
+                    label_evaluator._normalize_label(example.expected_output)
+                )
+                candidate = (
+                    label_evaluator._extract_bare_label(cleaned, normalized_labels)
+                    or label_evaluator._extract_answer_intro_label(cleaned, normalized_labels)
+                    or label_evaluator._infer_selected_label(cleaned, normalized_labels)
+                )
+                if candidate is not None:
+                    return candidate
+
+        json_candidate = self._normalize_json_completion(cleaned, example.expected_output)
+        if json_candidate is not None:
+            return json_candidate
+
+        return cleaned.strip()
+
+    @staticmethod
+    def _strip_hidden_reasoning(text: str) -> str:
+        """Remove hidden reasoning wrappers when the backend leaks them."""
+        if "</think>" in text:
+            tail = text.rsplit("</think>", maxsplit=1)[-1].strip()
+            if tail:
+                return tail
+        stripped = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+        return stripped or text.strip()
+
+    def _normalize_json_completion(self, completion: str, expected_output: str) -> str | None:
+        """Recover a final JSON answer when the model emits analysis plus structure."""
+        expected_object = self._parse_expected_json_object(expected_output)
+        if expected_object is None:
+            return None
+
+        parser = JsonParseEvaluator(extract_json=True)
+        json_block = parser._extract_json_block(completion)
+        if json_block is not None:
+            try:
+                parsed = json.loads(json_block)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                return json.dumps(parsed, ensure_ascii=False)
+
+        reconstructed = self._reconstruct_json_from_field_mentions(completion, expected_object)
+        if reconstructed is None:
+            return None
+        return json.dumps(reconstructed, ensure_ascii=False)
+
+    @staticmethod
+    def _parse_expected_json_object(expected_output: str) -> dict[str, Any] | None:
+        try:
+            parsed = json.loads(expected_output)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _reconstruct_json_from_field_mentions(
+        self,
+        text: str,
+        expected_object: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        reconstructed: dict[str, Any] = {}
+        found = 0
+        for key, expected_value in expected_object.items():
+            value = self._extract_field_value(text, key)
+            if value is None:
+                reconstructed[key] = None
+                continue
+            found += 1
+            if expected_value is None:
+                reconstructed[key] = None if value.lower() == "null" else value
+            else:
+                reconstructed[key] = value
+
+        minimum_fields = max(2, len(expected_object) // 2)
+        return reconstructed if found >= minimum_fields else None
+
+    def _extract_field_value(self, text: str, key: str) -> str | None:
+        special_patterns: dict[str, list[str]] = {
+            "incident_id": [
+                r"current active incident\s+(INC-\d+)",
+                r"active incident identifier\s+(INC-\d+)",
+                r"current tracked incident is\s+(INC-\d+)",
+                r"live production incident is\s+(INC-\d+)",
+                r"incident\s+(INC-\d+)",
+            ],
+            "severity": [
+                r"severity(?:\s+is|\s+remains|\s+classified as)?\s+(Sev-\d+)",
+                r"status stayed\s+(Sev-\d+)",
+            ],
+            "owner": [
+                r"primary owner(?:\s+for\s+the\s+active\s+issue)?\s+is\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)",
+                r"present owner is\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)",
+                r"owner:\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)",
+                r"bridge commander is\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)",
+                r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+) owns the mitigation plan",
+                r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+) is coordinating the incident",
+            ],
+            "customer": [
+                r"customer:\s*([A-Z][A-Za-z0-9& .-]+)",
+                r"current account:\s*([A-Z][A-Za-z0-9& .-]+)",
+                r"concerns\s+([A-Z][A-Za-z0-9& .-]+)\s+under\s+incident",
+                r"incident is\s+INC-\d+\s+for\s+([A-Z][A-Za-z0-9& .-]+)",
+                r"escalation is for\s+([A-Z][A-Za-z0-9& .-]+)\s+on\s+incident",
+                r"escalation for\s+([A-Z][A-Za-z0-9& .-]+)\s+uses\s+incident",
+                r"([A-Z][A-Za-z0-9& .-]+)\s+reported",
+            ],
+            "due_date": [
+                r"due(?:\s+date)?[:\s]+(\d{4}-\d{2}-\d{2})",
+                r"update due\s+(\d{4}-\d{2}-\d{2})",
+                r"next update by\s+(\d{4}-\d{2}-\d{2})",
+            ],
+        }
+
+        for pattern in special_patterns.get(key, []):
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                candidate = matches[-1] if key == "incident_id" else matches[0]
+                return self._clean_extracted_value(candidate)
+
+        patterns = [
+            rf"[`*\"']?{re.escape(key)}[`*\"']?\s*(?:field\s+value\s+is|value\s+is|is|=|:)\s*(null|\"[^\"]+\"|'[^']+'|`[^`]+`|\*\*[^*]+\*\*|[^\n,;]+)",
+            rf"\*{re.escape(key)}\*\s*:\s*(null|[^\n,;]+)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return self._clean_extracted_value(match.group(1))
+
+        fallback_patterns = {
+            "incident_id": r"\bINC-\d+\b",
+            "severity": r"\bSev-\d+\b",
+            "due_date": r"\b\d{4}-\d{2}-\d{2}\b",
+        }
+        fallback = fallback_patterns.get(key)
+        if fallback:
+            match = re.search(fallback, text, re.IGNORECASE)
+            if match:
+                return self._clean_extracted_value(match.group(0))
+        return None
+
+    @staticmethod
+    def _clean_extracted_value(value: str) -> str:
+        cleaned = value.strip().strip("`*\"'")
+        cleaned = cleaned.split("->", maxsplit=1)[0].strip()
+        cleaned = cleaned.split("</think>", maxsplit=1)[0].strip()
+        cleaned = re.sub(r"\s*\([^)]*\)\s*$", "", cleaned)
+        cleaned = re.sub(r"\s*\"\s*$", "", cleaned)
+        cleaned = re.sub(r"\s+$", "", cleaned)
+        return cleaned.rstrip(".,;")
 
     def _format_prompt(self, prompt: Prompt, example: Example) -> str:
         """Format a prompt with an example input.

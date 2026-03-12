@@ -115,6 +115,36 @@ class TestOpenAICompatClient:
         assert info["provider"] == "openai_compat"
         assert info["base_url"] == "http://test:5000/v1"
 
+    @pytest.mark.asyncio
+    async def test_complete_passes_config_extra_fields(self, client: OpenAICompatClient) -> None:
+        """Provider-specific payload options should not be dropped silently."""
+
+        captured: dict[str, object] = {}
+
+        class MockResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        class MockHttpClient:
+            async def post(self, _path: str, json: dict[str, object]) -> MockResponse:
+                captured.update(json)
+                return MockResponse()
+
+        client.config.extra = {"chat_template_kwargs": {"enable_thinking": False}}
+
+        async def _mock_get_client() -> MockHttpClient:
+            return MockHttpClient()
+
+        client._get_client = _mock_get_client  # type: ignore[method-assign]
+
+        content = await client.complete("prompt", system_prompt="system")
+
+        assert content == "ok"
+        assert captured["chat_template_kwargs"] == {"enable_thinking": False}
+
 
 class TestTokenBucket:
     """Tests for TokenBucket rate limiter."""

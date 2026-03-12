@@ -11,6 +11,7 @@ from promptfoundry.core.optimizer import Optimizer, OptimizerConfig
 from promptfoundry.core.population import Individual, Population
 from promptfoundry.core.prompt import Prompt
 from promptfoundry.core.task import Example, Task
+from promptfoundry.evaluators.pipeline import PipelineResult, StageResult
 
 
 class MockStrategy:
@@ -92,6 +93,30 @@ class MockEvaluator:
         return sum(scores) / len(scores) if scores else 0.0
 
 
+class MockPipelineEvaluator(MockEvaluator):
+    """Mock evaluator that exposes detailed pipeline feedback."""
+
+    def evaluate_detailed(
+        self, predicted: str, expected: str, metadata: dict[str, Any] | None = None
+    ) -> PipelineResult:
+        self.evaluate_count += 1
+        del predicted, expected, metadata
+        return PipelineResult(
+            final_score=0.4,
+            stage_results=[
+                StageResult("json_valid", 1.0, True),
+                StageResult("schema_complete", 0.2, False),
+                StageResult("value_quality", 0.0, False, skipped=True),
+            ],
+            stages_completed=2,
+            early_exit=True,
+            early_exit_stage="schema_complete",
+        )
+
+    def aggregate(self, scores: list[float]) -> float:
+        return sum(scores) / len(scores) if scores else 0.0
+
+
 class MockLLMClient:
     """Mock LLM client for testing."""
 
@@ -109,6 +134,20 @@ class MockLLMClient:
         self, prompts: list[str], system_prompt: str | None = None, **kwargs: Any
     ) -> list[str]:
         return [await self.complete(p) for p in prompts]
+
+
+class MockStageFeedbackStrategy(MockStrategy):
+    """Mock strategy that captures stage feedback from the optimizer."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stage_feedback: dict[str, dict[str, Any]] = {}
+
+    def record_stage_feedback(
+        self, population: Population, stage_feedback: dict[str, dict[str, Any]]
+    ) -> None:
+        del population
+        self.stage_feedback = stage_feedback
 
 
 class TestOptimizerConfig:
@@ -254,6 +293,56 @@ class TestOptimizer:
         assert cached_entries
         assert all(entry["prompt"] for entry in cached_entries)
         assert all(entry["completion"] for entry in cached_entries)
+
+    @pytest.mark.asyncio
+    async def test_optimize_records_pipeline_stage_feedback(
+        self, seed_prompt: Prompt, task: Task
+    ) -> None:
+        """Detailed evaluator stage failures should be persisted and passed to the strategy."""
+        strategy = MockStageFeedbackStrategy()
+        optimizer = Optimizer(
+            strategy=strategy,
+            evaluator=MockPipelineEvaluator(),
+            llm_client=MockLLMClient(),
+            config=OptimizerConfig(max_generations=2, population_size=2),
+        )
+
+        result = await optimizer.optimize(seed_prompt, task)
+
+        assert strategy.stage_feedback
+        assert all(
+            feedback["dominant_stage"] == "schema_complete"
+            for feedback in strategy.stage_feedback.values()
+        )
+        first_meta = result.history.generations[0].metadata
+        assert "stage_feedback" in first_meta
+        assert "evaluation_details" in result.interactions[0]
+
+    @pytest.mark.asyncio
+    async def test_optimize_normalizes_hidden_reasoning_to_final_label(self) -> None:
+        """Leaked reasoning traces should be collapsed to the final label answer."""
+        optimizer = Optimizer(
+            strategy=MockStrategy(),
+            evaluator=MockEvaluator(fixed_score=0.8),
+            llm_client=MockLLMClient(response="analysis</think>support/bug"),
+            config=OptimizerConfig(max_generations=1, population_size=1),
+        )
+        seed_prompt = Prompt(
+            text="{input}",
+            metadata={
+                "output_format": "label",
+                "task_metadata": {"allowed_labels": ["support/bug"]},
+            },
+        )
+        task = Task(
+            name="label_task",
+            examples=[Example(input="The app crashes", expected_output="support/bug")],
+        )
+
+        result = await optimizer.optimize(seed_prompt, task)
+
+        assert result.interactions[0]["completion"] == "support/bug"
+        assert result.interactions[0]["raw_completion"] == "analysis</think>support/bug"
 
     @pytest.mark.asyncio
     async def test_optimize_calls_strategy(

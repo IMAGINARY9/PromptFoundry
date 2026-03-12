@@ -50,6 +50,12 @@ class TestJsonParseEvaluator:
         text = 'The answer is {"result": 42} as expected.'
         assert evaluator.evaluate(text, '') == 1.0
 
+    def test_rejects_placeholder_json_templates(self) -> None:
+        """Instructional JSON templates should not count as a valid final answer."""
+        evaluator = JsonParseEvaluator(extract_json=True)
+        text = 'Output format: {"incident_id": "...", "severity": "..."}'
+        assert evaluator.evaluate(text, '') == 0.0
+
     def test_no_extraction(self) -> None:
         """Test that extraction can be disabled."""
         evaluator = JsonParseEvaluator(extract_json=False)

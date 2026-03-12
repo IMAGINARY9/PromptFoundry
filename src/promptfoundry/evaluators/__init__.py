@@ -3,6 +3,7 @@
 from promptfoundry.evaluators.accuracy import (
     ExactMatchEvaluator,
     FuzzyMatchEvaluator,
+    LabelAnswerEvaluator,
     NumericAnswerEvaluator,
 )
 from promptfoundry.evaluators.base import BaseEvaluator
@@ -20,6 +21,7 @@ from promptfoundry.evaluators.proxy_metrics import (
     FieldCoverageEvaluator,
     JsonParseEvaluator,
     JsonSchemaEvaluator,
+    JsonValueCoverageEvaluator,
     KeywordPresenceEvaluator,
     LengthConstraintEvaluator,
     OutputShapeEvaluator,
@@ -31,6 +33,7 @@ __all__ = [
     # Accuracy evaluators
     "ExactMatchEvaluator",
     "FuzzyMatchEvaluator",
+    "LabelAnswerEvaluator",
     "NumericAnswerEvaluator",
     # Format evaluators
     "ContainsEvaluator",
@@ -42,6 +45,7 @@ __all__ = [
     "FieldCoverageEvaluator",
     "JsonParseEvaluator",
     "JsonSchemaEvaluator",
+    "JsonValueCoverageEvaluator",
     "KeywordPresenceEvaluator",
     "LengthConstraintEvaluator",
     "OutputShapeEvaluator",

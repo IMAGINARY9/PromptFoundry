@@ -65,8 +65,9 @@ class JsonParseEvaluator(BaseEvaluator):
 
         # Try direct parse first
         try:
-            json.loads(text)
-            return text
+            parsed = json.loads(text)
+            if not self._contains_placeholder_values(parsed):
+                return text
         except json.JSONDecodeError:
             pass
 
@@ -80,12 +81,24 @@ class JsonParseEvaluator(BaseEvaluator):
             match = re.search(pattern, text)
             if match:
                 try:
-                    json.loads(match.group(0))
-                    return match.group(0)
+                    parsed = json.loads(match.group(0))
+                    if not self._contains_placeholder_values(parsed):
+                        return match.group(0)
                 except json.JSONDecodeError:
                     continue
 
         return None
+
+    def _contains_placeholder_values(self, value: Any) -> bool:
+        """Reject instructional JSON templates like `{\"field\": \"...\"}`."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            return normalized in {"...", "<...>", "tbd", "placeholder"}
+        if isinstance(value, list):
+            return any(self._contains_placeholder_values(item) for item in value)
+        if isinstance(value, dict):
+            return any(self._contains_placeholder_values(item) for item in value.values())
+        return False
 
     def evaluate(
         self,
@@ -344,6 +357,74 @@ class FieldCoverageEvaluator(BaseEvaluator):
             "use_regex": self.use_regex,
             "partial_credit": self.partial_credit,
         })
+        return info
+
+
+class JsonValueCoverageEvaluator(BaseEvaluator):
+    """Evaluator that checks whether expected JSON values appear in the output.
+
+    This provides cheap partial credit for verbose completions that identify the
+    correct values before they learn to emit valid JSON.
+    """
+
+    def __init__(
+        self,
+        skip_null_values: bool = True,
+        case_sensitive: bool = False,
+        strip_whitespace: bool = True,
+    ) -> None:
+        """Initialize expected-JSON value coverage evaluation."""
+        super().__init__(case_sensitive=case_sensitive, strip_whitespace=strip_whitespace)
+        self.skip_null_values = skip_null_values
+
+    def evaluate(
+        self,
+        predicted: str,
+        expected: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> float:
+        """Score how many expected JSON values are recoverable from the output."""
+        del metadata
+        try:
+            parsed_expected = json.loads(expected)
+        except json.JSONDecodeError:
+            return 0.0
+
+        if not isinstance(parsed_expected, dict):
+            return 0.0
+
+        expected_values = self._extract_expected_values(parsed_expected)
+        if not expected_values:
+            return 1.0
+
+        haystack = self._preprocess(predicted)
+        matches = sum(1 for value in expected_values if self._contains_value(haystack, value))
+        return matches / len(expected_values)
+
+    def _extract_expected_values(self, parsed_expected: dict[str, Any]) -> list[str]:
+        values: list[str] = []
+        for value in parsed_expected.values():
+            if value is None and self.skip_null_values:
+                continue
+            if isinstance(value, str):
+                normalized = self._preprocess(value)
+                if normalized:
+                    values.append(normalized)
+            elif isinstance(value, (int, float, bool)):
+                values.append(self._preprocess(str(value)))
+        return values
+
+    def _contains_value(self, haystack: str, value: str) -> bool:
+        if not value:
+            return False
+        if self.case_sensitive:
+            return value in haystack
+        return value.lower() in haystack.lower()
+
+    def get_evaluator_info(self) -> dict[str, Any]:
+        """Return evaluator information."""
+        info = super().get_evaluator_info()
+        info["skip_null_values"] = self.skip_null_values
         return info
 
 

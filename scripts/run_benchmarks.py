@@ -39,8 +39,10 @@ from promptfoundry.evaluators import (
     StagedPipelineEvaluator,
     JsonParseEvaluator,
     JsonSchemaEvaluator,
+    JsonValueCoverageEvaluator,
     FieldCoverageEvaluator,
     KeywordPresenceEvaluator,
+    LabelAnswerEvaluator,
     LengthConstraintEvaluator,
     OutputShapeEvaluator,
 )
@@ -98,10 +100,12 @@ def get_evaluator(evaluator_type: str, config: dict):
     evaluators = {
         "exact_match": lambda: ExactMatchEvaluator(**config),
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
+        "label_answer": lambda: LabelAnswerEvaluator(**config),
         "numeric_answer": lambda: NumericAnswerEvaluator(**config),
         "regex": lambda: RegexEvaluator(**config),
         "json_parse": lambda: JsonParseEvaluator(**config),
         "json_schema": lambda: JsonSchemaEvaluator(**config),
+        "json_value_coverage": lambda: JsonValueCoverageEvaluator(**config),
         "field_coverage": lambda: FieldCoverageEvaluator(**config),
         "keyword_presence": lambda: KeywordPresenceEvaluator(**config),
         "length_constraint": lambda: LengthConstraintEvaluator(**config),
@@ -295,6 +299,8 @@ def main() -> None:
         "json_formatting_task": "Extract data as JSON: {input}",
         "arithmetic_task": "Solve: {input}",
         "schema_extraction_task": "Extract the contact record as JSON: {input}",
+        "hierarchical_intent_task": "Route the request to the correct support queue: {input}",
+        "long_context_extraction_task": "Extract the incident summary as JSON: {input}",
     }
 
     if args.task:

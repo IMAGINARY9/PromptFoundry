@@ -147,6 +147,46 @@ class TestGeneticAlgorithmStrategy:
         assert "add_answer_only_directive" in names
         assert "swap_words" not in names
 
+    def test_structured_tasks_receive_guided_seed_variants(self) -> None:
+        """Structured extraction seeds should get JSON-oriented guided variants."""
+        strategy = GeneticAlgorithmStrategy(
+            EvolutionaryConfig(population_size=4, seed=42)
+        )
+        seed_prompt = Prompt(
+            text="Extract the incident summary as JSON: {input}",
+            metadata={
+                "task_metadata": {
+                    "task_type": "extraction",
+                    "output_format": "json",
+                    "requires_missing_field_handling": True,
+                }
+            },
+        )
+
+        population = strategy.initialize(seed_prompt, population_size=4)
+        texts = [individual.prompt.text for individual in population]
+
+        assert any("json" in text.lower() for text in texts[1:])
+        assert any("null" in text.lower() for text in texts[1:])
+
+    def test_stage_feedback_boosts_structured_operator_weights(self) -> None:
+        """Stage-aware weighting should prioritize structural fixes for schema failures."""
+        strategy = GeneticAlgorithmStrategy(EvolutionaryConfig(seed=42))
+        prompt = Prompt(text="Extract data: {input}")
+
+        strategy.record_stage_feedback(
+            Population([Individual(prompt=prompt, generation=0)], generation=0),
+            {prompt.id: {"dominant_stage": "schema_complete", "stage_counts": {"schema_complete": 2}}},
+        )
+
+        weights = {
+            operator.name: strategy._get_operator_selection_weight(operator, prompt)
+            for operator in strategy._get_mutation_operators()
+        }
+
+        assert weights["promote_structured_layout"] > weights["remove_filler"]
+        assert weights["add_output_constraint"] > weights["rephrase_instruction"]
+
     def test_operator_feedback_tracks_attempts_and_wins(
         self, strategy: GeneticAlgorithmStrategy
     ) -> None:

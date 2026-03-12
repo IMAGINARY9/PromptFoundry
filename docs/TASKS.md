@@ -1,8 +1,8 @@
 # PromptFoundry Task Catalog
 
-> **Version:** 1.0.0
+> **Version:** 1.1.0
 > **Status:** Active
-> **Last Updated:** 2026-03-08
+> **Last Updated:** 2026-03-12
 > **Authoritative Source:** Bundled task inventory, evaluator contracts, and MVP 3 task expansion guidance.
 
 ---
@@ -23,6 +23,8 @@ The tasks are not interchangeable. Some are intentionally strict to measure prom
 | JSON Formatting | [examples/json_formatting_task.yaml](../examples/json_formatting_task.yaml) | `fuzzy_match` against exact JSON payload | LLM-to-system handoff, lightweight ETL, API payload drafting, document-to-JSON extraction |
 | Structured Extraction | [examples/extraction_task.yaml](../examples/extraction_task.yaml) | `fuzzy_match` against compact pipe-separated output | Contact extraction, product feed parsing, event detail capture, log-to-record normalization |
 | Schema Extraction With Missing Fields | [examples/schema_extraction_task.yaml](../examples/schema_extraction_task.yaml) | `pipeline` (`json_parse` → `json_schema` → `fuzzy_match`) | CRM intake, contact normalization, ticket ingestion, and workflows where absent fields must be explicit `null` values |
+| Hierarchical Intent Routing | [examples/hierarchical_intent_task.yaml](../examples/hierarchical_intent_task.yaml) | `label_answer` with strict bare-label perfect scoring and conservative partial credit for verbose label selection | Queue routing, workflow dispatch, escalation categorization, and multi-tenant support triage |
+| Long-Context Incident Extraction | [examples/long_context_extraction_task.yaml](../examples/long_context_extraction_task.yaml) | `pipeline` (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`) | Incident management, audit summaries, long-form operational notes, and extraction from noisy timelines |
 | Arithmetic Reasoning | [examples/arithmetic_task.yaml](../examples/arithmetic_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Calculator-style assistants, invoice math verification, quantity checks, routing tasks that require a bare numeric result |
 | Word Math Problems | [examples/word_problems_task.yaml](../examples/word_problems_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Higher-variance quantitative reasoning where prompt optimization must discover answer-only formatting |
 
@@ -35,10 +37,11 @@ The tasks are not interchangeable. Some are intentionally strict to measure prom
 The following tasks are strict by design and should reject explanatory completions as perfect answers even when the semantic answer is correct:
 
 - Sentiment Classification
+- Hierarchical Intent Routing
 - Arithmetic Reasoning
 - Word Math Problems
 
-These tasks are used to measure whether optimization discovers instructions like “return exactly one label” or “output only the final answer.” If verbose outputs were accepted as correct, the benchmark would overstate quality and reduce the signal available to MVP 3 operator tracking.
+These tasks are used to measure whether optimization discovers instructions like “return exactly one label” or “output only the final answer.” Arithmetic, word-math, and hierarchical routing now preserve only conservative partial credit for verbose local-model outputs so the optimizer keeps a usable gradient without treating explanations as perfect answers.
 
 ### 3.2 Tolerant-format tasks
 
@@ -67,9 +70,13 @@ Primary task: Sentiment Classification.
 
 Use this when the production system expects a closed label set and downstream logic branches on a single token or class name.
 
+Hierarchical Intent Routing extends the same contract to multi-level labels where downstream queue assignment depends on the exact slash-delimited route.
+
 ### 4.2 Structured extraction from semi-structured text
 
 Primary tasks: JSON Formatting and Structured Extraction.
+
+Long-Context Incident Extraction and Schema Extraction With Missing Fields extend this group to pipeline-scored JSON tasks where retrieval focus and explicit missing-field handling both matter. The long-context task now starts with a cheap value-recovery stage so verbose extractions still produce signal before the optimizer solves strict JSON formatting.
 
 Use these when the output feeds another program, a report generator, a CRM ingest path, or a records normalization pipeline. These tasks are especially useful for validating MVP 3 semantic mutations because they benefit from clearer formatting constraints and layout-aware prompt changes.
 
@@ -88,6 +95,7 @@ The current task bundle is good enough to validate MVP 3 on three important axes
 - Closed-label discipline
 - Structured output compliance
 - Numeric answer discipline
+- Long-context focus under distractors
 
 The new schema-missing-fields task adds a fourth axis:
 
@@ -96,8 +104,8 @@ The new schema-missing-fields task adds a fourth axis:
 The current task bundle is still narrow in several ways:
 
 - It does not cover long-context extraction where irrelevant text competes with the target facts.
-- It does not cover optional or missing fields, which is common in real extraction pipelines.
-- It does not cover multi-label classification, hierarchical labels, or ambiguous intent routing.
+- It now covers optional or missing fields, but only in short-to-medium extraction contexts.
+- It now covers hierarchical labels, but not multilingual or ambiguous multi-label routing.
 - It does not cover multilingual prompts or locale-sensitive outputs.
 - It does not cover agent-like tasks where the right answer is a tool choice, action plan, or schema-constrained command.
 
@@ -115,15 +123,15 @@ Why it matters: this tests whether semantic mutations can learn field-presence d
 
 ### 6.2 Intent routing with hierarchical labels
 
-Add a task with labels such as `billing/refund`, `billing/invoice`, `support/bug`, and `support/access`.
+Implemented in [examples/hierarchical_intent_task.yaml](../examples/hierarchical_intent_task.yaml).
 
 Why it matters: it expands classification beyond shallow sentiment and tests whether label constraints remain useful when the label vocabulary becomes less obvious.
 
 ### 6.3 Long-context extraction
 
-Add examples where relevant facts are buried inside longer passages with distractor information.
+Implemented in [examples/long_context_extraction_task.yaml](../examples/long_context_extraction_task.yaml).
 
-Why it matters: this will expose whether current mutations improve focus and instruction clarity or only help on short prompts.
+Why it matters: this now exposes whether current mutations improve focus and instruction clarity or only help on short prompts.
 
 ### 6.4 Multilingual classification and extraction
 
@@ -147,6 +155,12 @@ Introduce new tasks only when paired with a stronger evaluator stack such as:
 
 Why it matters: MVP 3 can optimize prompts well, but complex workloads need better evaluation signal than a single flat metric.
 
+### 6.7 Stage-aware semantic mutations
+
+Implemented in the optimizer and evolutionary strategy feedback loop.
+
+Why it matters: pipeline-scored tasks now feed the dominant failing stage back into operator selection, so structural failures bias toward layout/constraint repairs while quality failures bias toward verification and cleanup.
+
 ---
 
 ## 7. Guidance for Adding New Tasks
@@ -167,3 +181,4 @@ If the downstream system expects machine-readable output, prefer strict scoring 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-03-08 | GitHub Copilot | Added bundled task inventory, audit corrections, and MVP 3 expansion guidance. |
+| 1.1.0 | 2026-03-12 | GitHub Copilot | Added hierarchical routing, long-context extraction, stage-aware mutation feedback notes, and signal-recovery evaluator contracts for verbose local-model outputs. |

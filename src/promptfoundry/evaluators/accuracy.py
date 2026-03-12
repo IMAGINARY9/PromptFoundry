@@ -183,6 +183,181 @@ class NumericAnswerEvaluator(BaseEvaluator):
         return info
 
 
+class LabelAnswerEvaluator(BaseEvaluator):
+    """Evaluator for strict label tasks with conservative partial credit.
+
+    Bare label-only outputs are the only perfect matches. If the model embeds
+    the correct label inside verbose reasoning, the evaluator returns partial
+    credit only when it can recover a clearly selected label without confusing
+    rubric mentions for the final answer.
+    """
+
+    def __init__(
+        self,
+        allowed_labels: list[str] | None = None,
+        case_sensitive: bool = False,
+        strip_whitespace: bool = True,
+        allow_terminal_punctuation: bool = True,
+        answer_intro_partial_credit: float = 0.75,
+        selected_label_partial_credit: float = 0.55,
+    ) -> None:
+        """Initialize strict label-answer evaluation behavior."""
+        super().__init__(case_sensitive=case_sensitive, strip_whitespace=strip_whitespace)
+        self.allowed_labels = allowed_labels or []
+        self.allow_terminal_punctuation = allow_terminal_punctuation
+        self.answer_intro_partial_credit = answer_intro_partial_credit
+        self.selected_label_partial_credit = selected_label_partial_credit
+
+    def evaluate(
+        self,
+        predicted: str,
+        expected: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> float:
+        """Score label outputs while preserving strict full-credit rules."""
+        del metadata
+        expected_label = self._normalize_label(expected)
+        allowed_labels = self._get_allowed_labels(expected_label)
+
+        bare_label = self._extract_bare_label(predicted, allowed_labels)
+        if bare_label is not None:
+            return 1.0 if self._labels_equal(bare_label, expected_label) else 0.0
+
+        answer_intro_label = self._extract_answer_intro_label(predicted, allowed_labels)
+        if answer_intro_label is not None:
+            return (
+                self.answer_intro_partial_credit
+                if self._labels_equal(answer_intro_label, expected_label)
+                else 0.0
+            )
+
+        selected_label = self._infer_selected_label(predicted, allowed_labels)
+        if selected_label is not None:
+            return (
+                self.selected_label_partial_credit
+                if self._labels_equal(selected_label, expected_label)
+                else 0.0
+            )
+
+        return 0.0
+
+    def _get_allowed_labels(self, expected_label: str) -> list[str]:
+        labels = [self._normalize_label(label) for label in self.allowed_labels]
+        if not any(self._labels_equal(label, expected_label) for label in labels):
+            labels.append(expected_label)
+        return labels
+
+    def _normalize_label(self, text: str) -> str:
+        label = text.strip() if self.strip_whitespace else text
+        if self.allow_terminal_punctuation:
+            label = ExactMatchEvaluator._strip_terminal_punctuation(label)
+        return label.strip("`'\" ")
+
+    def _extract_bare_label(self, text: str, allowed_labels: list[str]) -> str | None:
+        candidate = self._normalize_label(text)
+        for label in allowed_labels:
+            if self._labels_equal(candidate, label):
+                return label
+        return None
+
+    def _extract_answer_intro_label(self, text: str, allowed_labels: list[str]) -> str | None:
+        if not allowed_labels:
+            return None
+        alternatives = "|".join(re.escape(label) for label in sorted(allowed_labels, key=len, reverse=True))
+        patterns = [
+            rf"(?:final answer|answer|label|classification)\s*(?:is|:)?\s*`?({alternatives})`?",
+            rf"(?:route(?:\s+it)?\s+to|selected label|best label|choose|selected)\s*(?:is|:)?\s*`?({alternatives})`?",
+        ]
+        flags = 0 if self.case_sensitive else re.IGNORECASE
+        for pattern in patterns:
+            match = re.search(pattern, text, flags)
+            if match:
+                return self._match_canonical_label(match.group(1), allowed_labels)
+        return None
+
+    def _infer_selected_label(self, text: str, allowed_labels: list[str]) -> str | None:
+        if not allowed_labels:
+            return None
+
+        flags = 0 if self.case_sensitive else re.IGNORECASE
+        positive_cues = (
+            "best",
+            "correct",
+            "select",
+            "selected",
+            "choose",
+            "chosen",
+            "fits",
+            "fit",
+            "appropriate",
+            "belongs",
+            "route",
+            "routing",
+            "final",
+            "perfectly",
+        )
+        negative_cues = (
+            "unlikely",
+            "not",
+            "does not",
+            "doesn't",
+            "rather than",
+            "wrong",
+            "no ",
+        )
+        best_label: str | None = None
+        best_score = 0
+        tied = False
+        sentences = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", text) if segment.strip()]
+
+        for label in allowed_labels:
+            pattern = re.compile(re.escape(label), flags)
+            label_score = 0
+            for sentence in sentences:
+                if not pattern.search(sentence):
+                    continue
+                window = sentence if self.case_sensitive else sentence.lower()
+                for cue in positive_cues:
+                    if cue in window:
+                        label_score += 1
+                for cue in negative_cues:
+                    if cue in window:
+                        label_score -= 1
+            if label_score > best_score:
+                best_label = label
+                best_score = label_score
+                tied = False
+            elif label_score == best_score and label_score > 0:
+                tied = True
+
+        if best_score <= 0 or tied:
+            return None
+        return best_label
+
+    def _match_canonical_label(self, candidate: str, allowed_labels: list[str]) -> str | None:
+        normalized = self._normalize_label(candidate)
+        for label in allowed_labels:
+            if self._labels_equal(normalized, label):
+                return label
+        return None
+
+    def _labels_equal(self, left: str, right: str) -> bool:
+        if self.case_sensitive:
+            return left == right
+        return left.lower() == right.lower()
+
+    def get_evaluator_info(self) -> dict[str, Any]:
+        """Return evaluator metadata including partial-credit behavior."""
+        info = super().get_evaluator_info()
+        info.update({
+            "allowed_labels": self.allowed_labels,
+            "allow_terminal_punctuation": self.allow_terminal_punctuation,
+            "answer_intro_partial_credit": self.answer_intro_partial_credit,
+            "selected_label_partial_credit": self.selected_label_partial_credit,
+        })
+        return info
+
+
 class FuzzyMatchEvaluator(BaseEvaluator):
     """Evaluator that uses fuzzy string matching.
 

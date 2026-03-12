@@ -1,0 +1,119 @@
+# Long Context Extraction Task
+#
+# PURPOSE: Stress structured extraction when relevant details are surrounded by
+# distractor text, historical notes, and irrelevant context.
+
+name: long_context_incident_extraction
+
+system_prompt: |
+  You read long incident updates and extract the current incident summary.
+  Return exactly one JSON object with these keys in this order:
+  incident_id, severity, owner, customer, due_date.
+  Use null for any missing or unknown field.
+  Do not include explanation or extra keys.
+
+evaluator: pipeline
+evaluator_config:
+  aggregation: weighted_mean
+  fail_score: 0.0
+  stages:
+    - name: value_mentions
+      type: json_value_coverage
+      config:
+        skip_null_values: true
+      threshold: 0.0
+      is_filter: false
+      weight: 1.0
+    - name: json_valid
+      type: json_parse
+      config:
+        extract_json: true
+      threshold: 1.0
+      is_filter: true
+      weight: 1.0
+    - name: schema_complete
+      type: json_schema
+      config:
+        required_keys:
+          - incident_id
+          - severity
+          - owner
+          - customer
+          - due_date
+      threshold: 0.8
+      is_filter: true
+      weight: 1.0
+    - name: value_quality
+      type: fuzzy_match
+      config:
+        threshold: 0.8
+      weight: 2.0
+      is_filter: false
+
+examples:
+  - input: >
+      Weekly incident digest. Archive note: INC-1001 was closed in January and is not relevant.
+      Customer: Northwind Retail. Current active incident INC-4821. Severity is Sev-1 because checkout is down.
+      Primary owner for the active issue is Maya Singh. Next executive update due 2026-03-15.
+      Historical owner Carlos Mendez is no longer assigned. Ignore unrelated task IDs T-77 and T-91.
+    expected: '{"incident_id": "INC-4821", "severity": "sev-1", "owner": "Maya Singh", "customer": "Northwind Retail", "due_date": "2026-03-15"}'
+
+  - input: >
+      Support handoff notes. Yesterday we discussed bug 14-B but the live production incident is INC-3904 for Contoso Health.
+      It is currently Sev-2. Dana Wu owns the mitigation plan. Finance asked about invoices in a separate thread.
+      The promised next customer update is due on 2026-03-18. Do not use the deprecated owner alias D. Woo.
+    expected: '{"incident_id": "INC-3904", "severity": "sev-2", "owner": "Dana Wu", "customer": "Contoso Health", "due_date": "2026-03-18"}'
+
+  - input: >
+      Incident review packet. Reference incidents INC-2000 and INC-2001 were examples from training.
+      The current escalation concerns Tailspin Toys under incident INC-5120. Severity remains Sev-3.
+      Owner: Jordan Alvarez. The account team asked for a summary but no follow-up date has been committed yet.
+      Ignore the note about a possible April roadmap workshop.
+    expected: '{"incident_id": "INC-5120", "severity": "sev-3", "owner": "Jordan Alvarez", "customer": "Tailspin Toys", "due_date": null}'
+
+  - input: >
+      Executive bridge transcript. Fabrikam Manufacturing reported intermittent login failures.
+      The current tracked incident is INC-6112 and the bridge commander is Priya Raman.
+      Status stayed Sev-2 after the rollback. A marketing demo request appears later in this transcript and should be ignored.
+      Customer update due date: 2026-03-20.
+    expected: '{"incident_id": "INC-6112", "severity": "sev-2", "owner": "Priya Raman", "customer": "Fabrikam Manufacturing", "due_date": "2026-03-20"}'
+
+  - input: >
+      Overnight support summary. Adventure Works saw a warehouse sync delay last week, but that ticket was resolved.
+      The active customer escalation is for Blue Yonder Logistics on incident INC-7340. Severity is Sev-1.
+      Leah Kim is coordinating the incident. A promised status note is due 2026-03-16.
+      Ignore the mention of candidate owners Alex and Jamie from the planning section.
+    expected: '{"incident_id": "INC-7340", "severity": "sev-1", "owner": "Leah Kim", "customer": "Blue Yonder Logistics", "due_date": "2026-03-16"}'
+
+  - input: >
+      Customer care log. Legacy incident INC-1550 belongs to another region.
+      Current account: Woodgrove Bank. Active incident identifier INC-8455. Severity classified as Sev-2.
+      Present owner is Omar Haddad. The customer asked for the next update by 2026-03-22.
+      Disregard the unrelated legal review note and the draft FAQ attached below.
+    expected: '{"incident_id": "INC-8455", "severity": "sev-2", "owner": "Omar Haddad", "customer": "Woodgrove Bank", "due_date": "2026-03-22"}'
+
+validation_examples:
+  - input: >
+      Incident digest for leadership. Ignore archived issue INC-0888.
+      The live issue is INC-9004 for Alpine Ski House. Severity: Sev-3.
+      Owner is Ben Carter. No customer due date is currently scheduled.
+    expected: '{"incident_id": "INC-9004", "severity": "sev-3", "owner": "Ben Carter", "customer": "Alpine Ski House", "due_date": null}'
+  - input: >
+      Bridge notes. Current escalation for Litware Hotels uses incident INC-9018.
+      Severity stayed Sev-1 overnight. Owner: Sofia Martinez. Next update due 2026-03-19.
+      Ignore the appended sales outreach draft.
+    expected: '{"incident_id": "INC-9018", "severity": "sev-1", "owner": "Sofia Martinez", "customer": "Litware Hotels", "due_date": "2026-03-19"}'
+
+metadata:
+  task_type: extraction
+  output_format: json
+  difficulty: high
+  long_context: true
+  requires_missing_field_handling: true
+  domain: incident_management
+  required_output_keys:
+    - incident_id
+    - severity
+    - owner
+    - customer
+    - due_date

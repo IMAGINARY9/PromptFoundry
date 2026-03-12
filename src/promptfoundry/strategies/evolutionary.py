@@ -111,6 +111,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         self._schedule_state: Any = None  # Lazy imported
         self._effective_mutation_rate = self.evo_config.mutation_rate
         self._effective_crossover_rate = self.evo_config.crossover_rate
+        self._stage_feedback_by_prompt: dict[str, dict[str, Any]] = {}
 
     def _ensure_mvp3_components(self) -> None:
         """Lazy-load MVP 3 components to avoid circular imports."""
@@ -192,6 +193,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         # MVP 3: Reset diversity controller
         if self._diversity_controller:
             self._diversity_controller.reset()
+        self._stage_feedback_by_prompt = {}
 
         if self._schedule_state is not None:
             self._schedule_state.generation = 0
@@ -355,6 +357,50 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                     ),
                 ]
             )
+        elif task_value == "extraction" or getattr(output_mode, "value", None) == "structured":
+            recipes.extend(
+                [
+                    (
+                        "guided_structured_json",
+                        [
+                            self._mutate_promote_structured_layout,
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [
+                                    " Return a single JSON object.",
+                                    " Output valid JSON only with no explanation.",
+                                ],
+                            ),
+                        ],
+                    ),
+                    (
+                        "guided_structured_verified",
+                        [
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [
+                                    " Preserve the required keys and return only the final structured output.",
+                                ],
+                            ),
+                            self._mutate_add_verification_directive,
+                        ],
+                    ),
+                ]
+            )
+
+            if seed_prompt.metadata.get("task_metadata", {}).get("requires_missing_field_handling"):
+                recipes.append(
+                    (
+                        "guided_structured_nulls",
+                        [
+                            lambda text: self._append_first_missing_clause(
+                                text,
+                                [" Use null for any missing or unknown fields."],
+                            ),
+                            self._mutate_add_answer_only_directive,
+                        ],
+                    )
+                )
 
         for recipe_name, transforms in recipes:
             if len(variants) >= limit:
@@ -598,6 +644,15 @@ class GeneticAlgorithmStrategy(BaseStrategy):
                 "stall_count": float(self._schedule_state.stall_count),
                 "diversity_score": float(self._schedule_state.diversity_score),
             }
+
+    def record_stage_feedback(
+        self,
+        population: Population,
+        stage_feedback: dict[str, dict[str, Any]],
+    ) -> None:
+        """Record dominant stage failures so later mutations can react to them."""
+        del population
+        self._stage_feedback_by_prompt = dict(stage_feedback)
 
     def get_operator_stats(self) -> dict[str, dict[str, float]]:
         """Return aggregate operator performance metrics."""
@@ -879,7 +934,7 @@ class GeneticAlgorithmStrategy(BaseStrategy):
         remaining = operators.copy()
 
         while remaining:
-            mutation = self._pick_mutation_operator(remaining)
+            mutation = self._pick_mutation_operator(remaining, prompt)
             remaining.remove(mutation)
             new_text = self._normalize_prompt_text(
                 self._preserve_required_placeholders(
@@ -951,14 +1006,52 @@ class GeneticAlgorithmStrategy(BaseStrategy):
     def _pick_mutation_operator(
         self,
         operators: list[MutationOperator],
+        prompt: Prompt | None = None,
     ) -> MutationOperator:
         """Pick a mutation operator with weighted random choice."""
         self._ensure_operator_stats_initialized()
         weights = [
-            self._operator_current_weights.get(operator.name, operator.weight)
+            self._get_operator_selection_weight(operator, prompt)
             for operator in operators
         ]
         return random.choices(operators, weights=weights, k=1)[0]
+
+    def _get_operator_selection_weight(
+        self,
+        operator: MutationOperator,
+        prompt: Prompt | None = None,
+    ) -> float:
+        """Get the current stage-aware selection weight for an operator."""
+        base_weight = self._operator_current_weights.get(operator.name, operator.weight)
+        if prompt is None:
+            return base_weight
+
+        stage_info = self._stage_feedback_by_prompt.get(prompt.id, {})
+        dominant_stage = str(stage_info.get("dominant_stage", "")).lower()
+        if not dominant_stage:
+            return base_weight
+
+        boosts: dict[str, float] = {}
+        if "json" in dominant_stage:
+            boosts = {
+                "promote_structured_layout": 2.2,
+                "add_output_constraint": 1.8,
+                "add_answer_only_directive": 1.5,
+            }
+        elif "schema" in dominant_stage or "field" in dominant_stage:
+            boosts = {
+                "promote_structured_layout": 2.0,
+                "add_output_constraint": 1.7,
+                "add_verification_directive": 1.4,
+            }
+        elif "quality" in dominant_stage or "value" in dominant_stage:
+            boosts = {
+                "add_verification_directive": 1.8,
+                "remove_filler": 1.4,
+                "rephrase_instruction": 1.2,
+            }
+
+        return base_weight * boosts.get(operator.name, 1.0)
 
     def _ensure_operator_stats_initialized(self) -> None:
         """Initialize telemetry and adaptive weights for known operators."""

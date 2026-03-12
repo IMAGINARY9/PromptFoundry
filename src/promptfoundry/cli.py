@@ -49,7 +49,9 @@ from promptfoundry.evaluators import (
     FuzzyMatchEvaluator,
     JsonParseEvaluator,
     JsonSchemaEvaluator,
+    JsonValueCoverageEvaluator,
     KeywordPresenceEvaluator,
+    LabelAnswerEvaluator,
     LengthConstraintEvaluator,
     NumericAnswerEvaluator,
     OutputShapeEvaluator,
@@ -154,6 +156,7 @@ def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
         # Accuracy evaluators
         "exact_match": lambda: ExactMatchEvaluator(**config),
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
+        "label_answer": lambda: LabelAnswerEvaluator(**config),
         "numeric_answer": lambda: NumericAnswerEvaluator(**config),
         # Format evaluators
         "regex": lambda: RegexEvaluator(**config),
@@ -161,6 +164,7 @@ def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
         # Cheap proxy metrics (MVP 2)
         "json_parse": lambda: JsonParseEvaluator(**config),
         "json_schema": lambda: JsonSchemaEvaluator(**config),
+        "json_value_coverage": lambda: JsonValueCoverageEvaluator(**config),
         "field_coverage": lambda: FieldCoverageEvaluator(**config),
         "keyword_presence": lambda: KeywordPresenceEvaluator(**config),
         "length_constraint": lambda: LengthConstraintEvaluator(**config),

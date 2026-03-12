@@ -95,6 +95,12 @@ class OpenAICompatClient(BaseLLMClient):
             "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
             "top_p": kwargs.get("top_p", self.config.top_p),
         }
+        payload.update(self.config.extra)
+        payload.update({
+            key: value
+            for key, value in kwargs.items()
+            if key not in {"model", "temperature", "max_tokens", "top_p"}
+        })
 
         # Apply rate limiting
         estimated_tokens = len(prompt) // 4 + self.config.max_tokens

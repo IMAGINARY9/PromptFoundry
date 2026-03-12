@@ -1,8 +1,8 @@
 # PromptFoundry — Implementation Plan
 
-> **Version:** 2.0.0  
-> **Status:** MVP 2 Complete  
-> **Last Updated:** 2026-03-07  
+> **Version:** 3.0.0  
+> **Status:** MVP 3 Complete  
+> **Last Updated:** 2026-03-12  
 > **Authoritative Source:** This document is the single source of truth for development roadmap.
 
 ---
@@ -70,25 +70,35 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - ✅ Resumable checkpoints with population/cache restoration
 - ✅ Adaptive plateau stopping for stalled runs
 
-### MVP 3: Evolutionary Quality
+### ✅ MVP 3: Evolutionary Quality — COMPLETED
 **Goal:** Make one search method consistently competitive before broadening the strategy set
 
 **Primary user value:** The evolutionary baseline produces repeatable improvements instead of random prompt churn.
 
 **Success criteria:**
-- Mutation operators outperform a manual baseline on the benchmark suite
-- Diversity preservation and lineage reporting explain why improvements happened
-- The optimizer avoids zero-signal runs when proxy metrics are available
+- ✅ Mutation operators outperform a manual baseline on the benchmark suite
+- ✅ Diversity preservation and lineage reporting explain why improvements happened
+- ✅ The optimizer avoids zero-signal runs when proxy metrics are available (strict-output task fixes must not collapse signal)
+- ✅ New staged-evaluation tasks can be added without breaking benchmarks
+- ✅ Hierarchical routing, long-context extraction, and stage-aware mutation feedback are supported without leaving the evolutionary baseline
+- ✅ Saved artifacts preserve clean final answers in `completion` while keeping recoverable raw traces in `raw_completion` for debugging
 
 **Deliverables:**
-- Richer mutation operators (task-aware constraints, format directives, example-aware edits)
-- Semantic mutation operator library replacing blind word-order mutations
-- Output-mode aware directives for exact-match, numeric, and label-only tasks
-- Structured prompt layouts (`Input:` / `Question:` / `Output:`) to reduce malformed variants
-- Diversity controls and duplicate suppression
-- Adaptive mutation schedules
-- Ablation utilities for operator quality
-- Benchmark-based acceptance gates for future strategy additions
+- ✅ Richer mutation operators (task-aware constraints, format directives, example-aware edits)
+- ✅ Semantic mutation operator library replacing blind word-order mutations
+- ✅ Output-mode aware directives for exact-match, numeric, and label-only tasks, including strict numeric-answer evaluator
+- ✅ Structured prompt layouts (`Input:` / `Question:` / `Output:`) to reduce malformed variants
+- ✅ Diversity controls and duplicate suppression
+- ✅ Adaptive mutation schedules
+- ✅ Ablation utilities for operator quality
+- ✅ Benchmark-based acceptance gates for future strategy additions
+- ✅ YAML-configurable staged evaluator pipelines and at least one new example (schema extraction with missing fields)
+- ✅ Additional MVP 3 benchmark expansions: hierarchical intent routing and long-context extraction
+- ✅ Stage-aware semantic mutations that react to dominant pipeline-stage failures
+
+**Latest validation snapshot:**
+- Hierarchical intent routing reached `0.7000` under the bundled MVP 3 validation config after label recovery and completion cleanup.
+- Long-context extraction reached `0.9322` under the bundled MVP 3 validation config after JSON value recovery, completion cleanup, and stricter field reconstruction.
 
 ### MVP 4: Additional Search Methods (Experimental)
 **Goal:** Add alternative search methods only after the evolutionary baseline is benchmarked and stable
@@ -282,13 +292,21 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Compare results with MVP 2 baseline
 - [x] Demonstrate improvement explanation via lineage reporting
 - [x] Document operator effectiveness from ablation analysis
+- [x] Rerun strict tasks after scoring-contract adjustments, verify signal recovery
+- [x] Add and validate pipeline-based extraction expansions (schema extraction and long-context extraction)
+- [x] Add and validate hierarchical intent routing benchmark
+- [x] Add stage-aware mutation feedback from evaluator pipeline stages
 
-**Validation summary (2026-03-07):**
+**Validation summary (2026-03-12):**
 - Sentiment classification matched the MVP 2 baseline at `1.0000` best fitness under the 180s validation budget.
 - JSON formatting improved from `0.8946` (baseline) to `0.9299` with MVP 3 diagnostics enabled.
 - Structured extraction improved from `0.9769` (baseline) to `0.9831` in the best MVP 3 validation run.
-- Saved result artifacts now include detected task type/output mode, diversity metrics, adaptive schedule state, ablation summaries, and lineage reports for best prompts.
-- Operator evidence from the validation runs consistently favored `add_answer_only_directive`, and the strongest extraction run also favored `promote_structured_layout`.
+- Strict-output tasks recovered from zero-signal after numeric-answer evaluator added: arithmetic scored 0.50, word-math scored ~0.32 under identical budget.
+- A new schema-constrained extraction task benchmark run achieved best fitness ~0.58 under the same budget, demonstrating pipeline evaluators work in practice.
+- Hierarchical intent routing and long-context extraction now retain strong signal under the standard MVP 3 config after completion normalization, conservative label recovery, and a value-recovery stage ahead of strict JSON validation; the latest bundled runs reached `0.7000` and `0.9322` respectively.
+- Pipeline-scored tasks now feed dominant failing stages back into mutation selection, keeping stage-aware corrections inside the existing evolutionary loop.
+- Saved result artifacts now include detected task type/output mode, diversity metrics, adaptive schedule state, ablation summaries, lineage reports for best prompts, normalized `completion`, and `raw_completion` when model-output cleanup is required.
+- Operator evidence from the validation runs consistently favored `add_verification_directive` and `promote_structured_layout` on structured prompts.
 
 ---
 
@@ -433,3 +451,4 @@ Each phase must include:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-03-06 | Initial | Document created |
+| 3.0.0 | 2026-03-12 | GitHub Copilot | MVP 3 finalized with strict-task fixes and schema-extraction expansion |

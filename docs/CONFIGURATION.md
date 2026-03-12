@@ -1,8 +1,8 @@
 # PromptFoundry — Configuration Reference
 
-> **Version:** 1.1.0  
+> **Version:** 1.2.0  
 > **Status:** Active  
-> **Last Updated:** 2026-03-07  
+> **Last Updated:** 2026-03-12  
 > **Authoritative Source:** This document is the single source of truth for configuration options.
 
 ---
@@ -129,6 +129,12 @@ llm:
   temperature: 0.7
   max_tokens: 256
   top_p: 1.0
+
+  # Optional provider-specific payload fields forwarded to the backend.
+  # Example for reasoning-capable local models:
+  # extra:
+  #   chat_template_kwargs:
+  #     enable_thinking: false
   
   # Request settings
   timeout: 30

@@ -1,0 +1,74 @@
+# Hierarchical Intent Routing Task
+#
+# PURPOSE: Validate strict label-only routing beyond shallow sentiment by using
+# multi-level queue labels that downstream systems consume directly.
+
+name: hierarchical_intent_routing
+
+system_prompt: |
+  You route support requests to exactly one queue label.
+  Return exactly one label from this set:
+  billing/refund, billing/invoice, support/bug, support/access, sales/demo.
+  Output only the label with no explanation.
+
+evaluator: label_answer
+evaluator_config:
+  case_sensitive: false
+  allowed_labels:
+    - billing/refund
+    - billing/invoice
+    - support/bug
+    - support/access
+    - sales/demo
+
+examples:
+  - input: "I was charged twice for my subscription and need the extra payment reversed."
+    expected: "billing/refund"
+
+  - input: "Can you send me a copy of invoice INV-2048 for last month?"
+    expected: "billing/invoice"
+
+  - input: "The dashboard crashes every time I export the weekly report."
+    expected: "support/bug"
+
+  - input: "My account says SSO required, but I cannot sign in after the password reset."
+    expected: "support/access"
+
+  - input: "We want a walkthrough of enterprise features before deciding on a contract."
+    expected: "sales/demo"
+
+  - input: "Please cancel the duplicate seat purchase and refund the overcharge."
+    expected: "billing/refund"
+
+  - input: "Finance needs the corrected invoice with our VAT number attached."
+    expected: "billing/invoice"
+
+  - input: "The mobile app freezes when I tap notifications on Android 14."
+    expected: "support/bug"
+
+  - input: "I am locked out after enabling MFA and none of the backup codes work."
+    expected: "support/access"
+
+  - input: "Could your team show us the admin controls and audit logs in a live demo?"
+    expected: "sales/demo"
+
+validation_examples:
+  - input: "We need reimbursement for the renewal that went through after cancellation."
+    expected: "billing/refund"
+  - input: "Where can I download the March billing statement for procurement?"
+    expected: "billing/invoice"
+  - input: "A live product demonstration would help our security team evaluate the platform."
+    expected: "sales/demo"
+
+metadata:
+  task_type: classification
+  output_format: label
+  difficulty: medium
+  label_hierarchy: true
+  domain: support_routing
+  allowed_labels:
+    - billing/refund
+    - billing/invoice
+    - support/bug
+    - support/access
+    - sales/demo

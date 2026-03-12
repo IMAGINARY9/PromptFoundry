@@ -35,7 +35,17 @@ python scripts/run_benchmarks.py --llm-url http://localhost:8080/v1
    - Evaluator: staged pipeline (`json_parse` → `json_schema` → `fuzzy_match`)
    - 8 training + 2 validation examples
 
-4. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
+4. **Hierarchical Intent Routing** (`hierarchical_intent_task.yaml`)
+   - Route requests to a strict slash-delimited queue label
+   - Evaluator: label_answer with strict bare-label perfect scoring and conservative partial credit for verbose label selection
+   - 10 training + 3 validation examples
+
+5. **Long-Context Incident Extraction** (`long_context_extraction_task.yaml`)
+   - Extract structured incident summaries from noisy long-form notes
+   - Evaluator: staged pipeline (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`)
+   - 6 training + 2 validation examples
+
+6. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
    - Solve word math problems
    - Evaluator: numeric_answer with strict bare-number perfect scoring and prose partial credit
    - 12 examples

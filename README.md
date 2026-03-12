@@ -16,11 +16,12 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 
 - 🧬 **Evolutionary optimization**: Genetic algorithms with mutation/crossover
 - 🔌 **LLM-agnostic**: Works with any OpenAI-compatible API (including local models)
-- 📊 **Multiple evaluators**: Exact match, fuzzy match, regex, strict numeric-answer scoring, custom functions
+- 📊 **Multiple evaluators**: Exact match, fuzzy match, regex, strict numeric-answer scoring, strict label-answer scoring, JSON value coverage, and custom functions
 - 🚀 **Rate limiting**: Built-in token bucket for API compliance  
 - 📈 **Progress tracking**: Rich CLI with progress bars, per-generation timing, and cancelable runs
 - ⚡ **Caching & concurrency**: Avoids duplicate LLM requests and evaluates examples in parallel
 - 🧠 **Adaptive mutations**: Tracks operator win rates and reweights mutation operators during a run
+- 🧭 **Stage-aware mutations**: Pipeline stage failures can bias later mutations toward structural or quality fixes
 - 🌱 **Diversity-aware evolution**: Suppresses duplicates, applies crowding penalties, and tracks lineage
 - 🧪 **Ablation diagnostics**: Captures per-operator effectiveness summaries in saved result files
 - 🧱 **Staged evaluator pipelines**: Compose cheap filters and weighted scorers directly from task YAML
@@ -31,7 +32,7 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 ### Current Scope
 
 - Current search method: evolutionary optimization only
-- Current strengths: format-constrained tasks, extraction, classification, and tasks with cheap proxy metrics
+- Current strengths: format-constrained tasks, extraction, classification, hierarchical routing, and tasks with cheap proxy metrics
 - Current limitation: performance is still dominated by the LLM backend, especially on extraction-heavy tasks that need richer structural evaluators than fuzzy match alone
 - Planned next step: keep alternative search methods behind benchmark evidence before expanding beyond the evolutionary baseline
 
