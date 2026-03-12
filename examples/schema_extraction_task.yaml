@@ -1,0 +1,81 @@
+# Schema Extraction Task
+#
+# PURPOSE: Test extraction tasks that require explicit null placeholders for
+# missing fields instead of omitting keys or returning free-form prose.
+
+name: schema_extraction_missing_fields
+
+system_prompt: |
+  You extract contact records into JSON.
+  Return exactly one JSON object with these keys in this order:
+  name, email, phone, company, title.
+  If a field is missing or unknown, set its value to null.
+  Do not include extra keys or explanatory text.
+
+evaluator: pipeline
+evaluator_config:
+  aggregation: weighted_mean
+  fail_score: 0.0
+  stages:
+    - name: json_valid
+      type: json_parse
+      config:
+        extract_json: true
+      threshold: 1.0
+      is_filter: true
+      weight: 1.0
+    - name: schema_complete
+      type: json_schema
+      config:
+        required_keys:
+          - name
+          - email
+          - phone
+          - company
+          - title
+      threshold: 0.8
+      is_filter: true
+      weight: 1.0
+    - name: value_quality
+      type: fuzzy_match
+      config:
+        threshold: 0.8
+      weight: 2.0
+      is_filter: false
+
+examples:
+  - input: "Alice Chen, Senior Recruiter at Northwind. Email alice@northwind.com."
+    expected: '{"name": "Alice Chen", "email": "alice@northwind.com", "phone": null, "company": "Northwind", "title": "Senior Recruiter"}'
+
+  - input: "Miguel Torres can be reached at miguel.torres@example.com or 555-0102. He works at Fabrikam as a Support Engineer."
+    expected: '{"name": "Miguel Torres", "email": "miguel.torres@example.com", "phone": "555-0102", "company": "Fabrikam", "title": "Support Engineer"}'
+
+  - input: "Priya Kapoor from Contoso shared her phone number 555-0139."
+    expected: '{"name": "Priya Kapoor", "email": null, "phone": "555-0139", "company": "Contoso", "title": null}'
+
+  - input: "Jordan Lee, Product Manager. Contact: jordan.lee@adatum.io"
+    expected: '{"name": "Jordan Lee", "email": "jordan.lee@adatum.io", "phone": null, "company": "Adatum", "title": "Product Manager"}'
+
+  - input: "Sofia Martinez from Wingtip Toys is the new Operations Lead. Call 555-0199 for details."
+    expected: '{"name": "Sofia Martinez", "email": null, "phone": "555-0199", "company": "Wingtip Toys", "title": "Operations Lead"}'
+
+  - input: "Contact record: Ben Carter, email ben@litware.com, phone 555-0175."
+    expected: '{"name": "Ben Carter", "email": "ben@litware.com", "phone": "555-0175", "company": "Litware", "title": null}'
+
+  - input: "Nina Patel is a Solutions Architect at Blue Yonder."
+    expected: '{"name": "Nina Patel", "email": null, "phone": null, "company": "Blue Yonder", "title": "Solutions Architect"}'
+
+  - input: "Owen Brooks, phone 555-0188, works with Alpine Ski House."
+    expected: '{"name": "Owen Brooks", "email": null, "phone": "555-0188", "company": "Alpine Ski House", "title": null}'
+
+validation_examples:
+  - input: "Harper Mills from Tailspin Toys can be reached at harper@tailspin.toys."
+    expected: '{"name": "Harper Mills", "email": "harper@tailspin.toys", "phone": null, "company": "Tailspin Toys", "title": null}'
+  - input: "Leah Kim, Customer Success Manager, phone 555-0114, Contoso."
+    expected: '{"name": "Leah Kim", "email": null, "phone": "555-0114", "company": "Contoso", "title": "Customer Success Manager"}'
+
+metadata:
+  task_type: extraction
+  output_format: json
+  difficulty: medium
+  requires_missing_field_handling: true

@@ -23,6 +23,7 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 - 🧠 **Adaptive mutations**: Tracks operator win rates and reweights mutation operators during a run
 - 🌱 **Diversity-aware evolution**: Suppresses duplicates, applies crowding penalties, and tracks lineage
 - 🧪 **Ablation diagnostics**: Captures per-operator effectiveness summaries in saved result files
+- 🧱 **Staged evaluator pipelines**: Compose cheap filters and weighted scorers directly from task YAML
 - ✅ **Configurable exact match**: Supports permissive normalization when needed without weakening strict-output tasks
 - 💾 **Resumable checkpoints**: Saves population, cache, and operator state for true resume support
 - 🛠️ **Extensible**: Protocol-based interfaces for custom components

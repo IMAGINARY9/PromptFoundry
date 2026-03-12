@@ -43,6 +43,7 @@ from promptfoundry.core import (
 )
 from promptfoundry.evaluators import (
     ContainsEvaluator,
+    EvaluationStage,
     ExactMatchEvaluator,
     FieldCoverageEvaluator,
     FuzzyMatchEvaluator,
@@ -53,6 +54,7 @@ from promptfoundry.evaluators import (
     NumericAnswerEvaluator,
     OutputShapeEvaluator,
     RegexEvaluator,
+    StagedPipelineEvaluator,
 )
 from promptfoundry.llm import LLMConfig, OpenAICompatClient
 from promptfoundry.strategies import GeneticAlgorithmStrategy
@@ -130,6 +132,24 @@ def _load_task(task_path: Path) -> tuple[Task, str, dict[str, Any]]:
 
 def _get_evaluator(evaluator_type: str, config: dict[str, Any]) -> Any:
     """Get an evaluator instance by type name."""
+    if evaluator_type == "pipeline":
+        stage_configs = config.get("stages", [])
+        stages = [
+            EvaluationStage(
+                name=stage_config["name"],
+                evaluator=_get_evaluator(stage_config["type"], stage_config.get("config", {})),
+                weight=stage_config.get("weight", 1.0),
+                threshold=stage_config.get("threshold", 0.0),
+                is_filter=stage_config.get("is_filter", True),
+            )
+            for stage_config in stage_configs
+        ]
+        return StagedPipelineEvaluator(
+            stages=stages,
+            fail_score=config.get("fail_score", 0.0),
+            aggregation=config.get("aggregation", "weighted_mean"),
+        )
+
     evaluators: dict[str, Any] = {
         # Accuracy evaluators
         "exact_match": lambda: ExactMatchEvaluator(**config),
@@ -1082,6 +1102,11 @@ def list_evaluators() -> None:
         "numeric_answer",
         "Strict numeric scoring with partial credit for correct embedded numbers",
         "[blue]Accuracy[/blue]",
+    )
+    table.add_row(
+        "pipeline",
+        "Multi-stage evaluator with cheap filters and weighted scorers",
+        "[cyan]Pipeline[/cyan]",
     )
 
     # Format evaluators

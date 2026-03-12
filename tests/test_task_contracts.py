@@ -68,3 +68,13 @@ class TestBundledTaskContracts:
         assert evaluator.evaluate("21", "21") == 1.0
         assert evaluator.evaluate("21.", "21") == 1.0
         assert 0.0 < evaluator.evaluate("The answer is 21.", "21") < 1.0
+
+    def test_schema_task_rewards_complete_json_with_null_placeholders(self) -> None:
+        """Schema extraction should reward valid JSON and explicit nulls for missing fields."""
+        _task, evaluator = _load_bundled_task("schema_extraction_task.yaml")
+
+        expected = '{"name": "Alice Chen", "email": "alice@northwind.com", "phone": null, "company": "Northwind", "title": "Senior Recruiter"}'
+        missing_null = '{"name": "Alice Chen", "email": "alice@northwind.com", "company": "Northwind", "title": "Senior Recruiter"}'
+
+        assert evaluator.evaluate(expected, expected) == 1.0
+        assert 0.0 < evaluator.evaluate(missing_null, expected) < 1.0

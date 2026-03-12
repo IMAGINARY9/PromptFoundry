@@ -22,6 +22,7 @@ The tasks are not interchangeable. Some are intentionally strict to measure prom
 | Sentiment Classification | [examples/sentiment_task.yaml](../examples/sentiment_task.yaml) | `exact_match` with `normalize_output: false` | Triage of reviews, support feedback labeling, moderation queues, basic routing classifiers |
 | JSON Formatting | [examples/json_formatting_task.yaml](../examples/json_formatting_task.yaml) | `fuzzy_match` against exact JSON payload | LLM-to-system handoff, lightweight ETL, API payload drafting, document-to-JSON extraction |
 | Structured Extraction | [examples/extraction_task.yaml](../examples/extraction_task.yaml) | `fuzzy_match` against compact pipe-separated output | Contact extraction, product feed parsing, event detail capture, log-to-record normalization |
+| Schema Extraction With Missing Fields | [examples/schema_extraction_task.yaml](../examples/schema_extraction_task.yaml) | `pipeline` (`json_parse` → `json_schema` → `fuzzy_match`) | CRM intake, contact normalization, ticket ingestion, and workflows where absent fields must be explicit `null` values |
 | Arithmetic Reasoning | [examples/arithmetic_task.yaml](../examples/arithmetic_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Calculator-style assistants, invoice math verification, quantity checks, routing tasks that require a bare numeric result |
 | Word Math Problems | [examples/word_problems_task.yaml](../examples/word_problems_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Higher-variance quantitative reasoning where prompt optimization must discover answer-only formatting |
 
@@ -88,6 +89,10 @@ The current task bundle is good enough to validate MVP 3 on three important axes
 - Structured output compliance
 - Numeric answer discipline
 
+The new schema-missing-fields task adds a fourth axis:
+
+- Schema completeness with explicit null handling
+
 The current task bundle is still narrow in several ways:
 
 - It does not cover long-context extraction where irrelevant text competes with the target facts.
@@ -104,9 +109,9 @@ The next task additions should stay inside MVP 3’s current architecture: seman
 
 ### 6.1 Schema-constrained extraction with missing fields
 
-Add a task where the model must output JSON with required keys plus explicit `null` values for missing information.
+Implemented in [examples/schema_extraction_task.yaml](../examples/schema_extraction_task.yaml).
 
-Why it matters: this tests whether semantic mutations can learn field-presence directives and whether proxy evaluators should move from fuzzy string similarity toward schema-aware scoring.
+Why it matters: this tests whether semantic mutations can learn field-presence directives and uses the first bundled YAML-configured staged evaluator stack to preserve optimization signal without over-rewarding malformed outputs.
 
 ### 6.2 Intent routing with hierarchical labels
 

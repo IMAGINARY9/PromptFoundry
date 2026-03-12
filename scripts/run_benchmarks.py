@@ -31,10 +31,18 @@ from promptfoundry.core import (
     Task,
 )
 from promptfoundry.evaluators import (
+    EvaluationStage,
     ExactMatchEvaluator,
     FuzzyMatchEvaluator,
     NumericAnswerEvaluator,
     RegexEvaluator,
+    StagedPipelineEvaluator,
+    JsonParseEvaluator,
+    JsonSchemaEvaluator,
+    FieldCoverageEvaluator,
+    KeywordPresenceEvaluator,
+    LengthConstraintEvaluator,
+    OutputShapeEvaluator,
 )
 from promptfoundry.llm import LLMConfig, OpenAICompatClient
 from promptfoundry.strategies import GeneticAlgorithmStrategy
@@ -70,11 +78,34 @@ def load_task(task_path: Path) -> tuple[Task, str, dict]:
 
 def get_evaluator(evaluator_type: str, config: dict):
     """Get an evaluator instance by type name."""
+    if evaluator_type == "pipeline":
+        stages = [
+            EvaluationStage(
+                name=stage_config["name"],
+                evaluator=get_evaluator(stage_config["type"], stage_config.get("config", {})),
+                weight=stage_config.get("weight", 1.0),
+                threshold=stage_config.get("threshold", 0.0),
+                is_filter=stage_config.get("is_filter", True),
+            )
+            for stage_config in config.get("stages", [])
+        ]
+        return StagedPipelineEvaluator(
+            stages=stages,
+            fail_score=config.get("fail_score", 0.0),
+            aggregation=config.get("aggregation", "weighted_mean"),
+        )
+
     evaluators = {
         "exact_match": lambda: ExactMatchEvaluator(**config),
         "fuzzy_match": lambda: FuzzyMatchEvaluator(**config),
         "numeric_answer": lambda: NumericAnswerEvaluator(**config),
         "regex": lambda: RegexEvaluator(**config),
+        "json_parse": lambda: JsonParseEvaluator(**config),
+        "json_schema": lambda: JsonSchemaEvaluator(**config),
+        "field_coverage": lambda: FieldCoverageEvaluator(**config),
+        "keyword_presence": lambda: KeywordPresenceEvaluator(**config),
+        "length_constraint": lambda: LengthConstraintEvaluator(**config),
+        "output_shape": lambda: OutputShapeEvaluator(**config),
     }
 
     if evaluator_type not in evaluators:
@@ -263,6 +294,7 @@ def main() -> None:
         "sentiment_task": "Classify the sentiment: {input}",
         "json_formatting_task": "Extract data as JSON: {input}",
         "arithmetic_task": "Solve: {input}",
+        "schema_extraction_task": "Extract the contact record as JSON: {input}",
     }
 
     if args.task:

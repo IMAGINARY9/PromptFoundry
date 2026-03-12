@@ -30,7 +30,12 @@ python scripts/run_benchmarks.py --llm-url http://localhost:8080/v1
    - Evaluator: fuzzy_match (threshold: 0.85)
    - 10 examples
 
-3. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
+3. **Schema Extraction With Missing Fields** (`schema_extraction_task.yaml`)
+   - Extract a contact record as JSON and emit `null` for missing fields
+   - Evaluator: staged pipeline (`json_parse` → `json_schema` → `fuzzy_match`)
+   - 8 training + 2 validation examples
+
+4. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
    - Solve word math problems
    - Evaluator: numeric_answer with strict bare-number perfect scoring and prose partial credit
    - 12 examples

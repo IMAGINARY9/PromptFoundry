@@ -6,8 +6,9 @@ from pathlib import Path
 
 import yaml
 
-from promptfoundry.cli import _apply_runtime_llm_overrides, _load_task
+from promptfoundry.cli import _apply_runtime_llm_overrides, _get_evaluator, _load_task
 from promptfoundry.core.config import RuntimeConfig, RuntimeProfile
+from promptfoundry.evaluators import StagedPipelineEvaluator
 from promptfoundry.llm import LLMConfig
 
 
@@ -62,3 +63,33 @@ class TestLoadTask:
         assert task.validation_examples[0].expected_output == "d"
         assert evaluator_type == "exact_match"
         assert evaluator_config["normalize_output"] is False
+
+    def test_get_evaluator_builds_pipeline_from_yaml_config(self) -> None:
+        """Pipeline evaluator configs should build nested stage evaluators."""
+        evaluator = _get_evaluator(
+            "pipeline",
+            {
+                "aggregation": "weighted_mean",
+                "stages": [
+                    {
+                        "name": "json_valid",
+                        "type": "json_parse",
+                        "config": {"extract_json": True},
+                        "threshold": 1.0,
+                        "is_filter": True,
+                    },
+                    {
+                        "name": "quality",
+                        "type": "fuzzy_match",
+                        "config": {"threshold": 0.8},
+                        "weight": 2.0,
+                        "is_filter": False,
+                    },
+                ],
+            },
+        )
+
+        assert isinstance(evaluator, StagedPipelineEvaluator)
+        assert len(evaluator.stages) == 2
+        assert evaluator.stages[0].name == "json_valid"
+        assert evaluator.stages[1].weight == 2.0
