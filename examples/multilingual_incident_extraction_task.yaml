@@ -1,0 +1,126 @@
+# Multilingual Incident Extraction Task
+#
+# PURPOSE: Stress structured extraction when the incident timeline shifts across
+# languages while the required output schema remains stable.
+
+name: multilingual_incident_extraction
+
+system_prompt: |
+  You read multilingual incident updates and extract the current incident summary.
+  Return exactly one JSON object with these keys in this order:
+  incident_id, severity, owner, customer, due_date.
+  Use null for any missing or unknown field.
+  Do not include explanation or extra keys.
+
+evaluator: pipeline
+evaluator_config:
+  aggregation: weighted_mean
+  fail_score: 0.0
+  stages:
+    - name: value_mentions
+      type: json_value_coverage
+      config:
+        skip_null_values: true
+      threshold: 0.0
+      is_filter: false
+      weight: 1.0
+    - name: json_valid
+      type: json_parse
+      config:
+        extract_json: true
+      threshold: 1.0
+      is_filter: true
+      weight: 1.0
+    - name: schema_complete
+      type: json_schema
+      config:
+        required_keys:
+          - incident_id
+          - severity
+          - owner
+          - customer
+          - due_date
+      threshold: 0.8
+      is_filter: true
+      weight: 1.0
+    - name: value_quality
+      type: fuzzy_match
+      config:
+        threshold: 0.8
+      weight: 2.0
+      is_filter: false
+
+examples:
+  - input: >
+      Resumen del incidente. Nota archivada: INC-1200 ya fue cerrado y no es relevante.
+      Cliente: Northwind Retail. Current active incident INC-4821.
+      La severidad sigue en Sev-1 porque el checkout esta caido.
+      La responsable actual es Maya Singh y la proxima actualizacion ejecutiva vence el 2026-03-15.
+    expected: '{"incident_id": "INC-4821", "severity": "sev-1", "owner": "Maya Singh", "customer": "Northwind Retail", "due_date": "2026-03-15"}'
+
+  - input: >
+      Compte rendu d'incident. Archive: INC-2090 etait un ancien exemple de formation.
+      Client: Contoso Health. Current tracked incident is INC-3904.
+      La severite reste Sev-2. Dana Wu possede la mitigation en cours.
+      La prochaine mise a jour client est prevue pour 2026-03-18.
+    expected: '{"incident_id": "INC-3904", "severity": "sev-2", "owner": "Dana Wu", "customer": "Contoso Health", "due_date": "2026-03-18"}'
+
+  - input: >
+      Einsatzprotokoll. Referenz INC-2000 war nur ein Trainingsbeispiel.
+      Kunde: Tailspin Toys. Active incident identifier INC-5120.
+      Die Prioritat bleibt Sev-3. Besitzer: Jordan Alvarez.
+      Ein neues Kundendatum wurde noch nicht zugesagt.
+    expected: '{"incident_id": "INC-5120", "severity": "sev-3", "owner": "Jordan Alvarez", "customer": "Tailspin Toys", "due_date": null}'
+
+  - input: >
+      Resumo da ponte executiva. O problema ativo e o incidente INC-6112 para Fabrikam Manufacturing.
+      Severity permanece Sev-2 apos o rollback.
+      A responsavel atual e Priya Raman.
+      Proxima atualizacao para o cliente em 2026-03-20.
+    expected: '{"incident_id": "INC-6112", "severity": "sev-2", "owner": "Priya Raman", "customer": "Fabrikam Manufacturing", "due_date": "2026-03-20"}'
+
+  - input: >
+      Mixed-language handoff. Ignore archived issue INC-1550 from another region.
+      Cliente actual: Blue Yonder Logistics. Current active incident INC-7340.
+      La severite est Sev-1 and Leah Kim is coordinating the mitigation.
+      Next customer update due 2026-03-16.
+    expected: '{"incident_id": "INC-7340", "severity": "sev-1", "owner": "Leah Kim", "customer": "Blue Yonder Logistics", "due_date": "2026-03-16"}'
+
+  - input: >
+      Nota de soporte. Legacy incident INC-0888 pertence a outra fila.
+      Current account: Woodgrove Bank. Active incident identifier INC-8455.
+      Severity classified as Sev-2. Present owner is Omar Haddad.
+      El proximo update para el cliente debe enviarse el 2026-03-22.
+    expected: '{"incident_id": "INC-8455", "severity": "sev-2", "owner": "Omar Haddad", "customer": "Woodgrove Bank", "due_date": "2026-03-22"}'
+
+validation_examples:
+  - input: >
+      Resumen para liderazgo. Ignore archived issue INC-0700.
+      Cliente: Alpine Ski House. Current active incident INC-9004.
+      La severidad es Sev-3 y el responsable es Ben Carter.
+      No hay fecha comprometida para la proxima actualizacion del cliente.
+    expected: '{"incident_id": "INC-9004", "severity": "sev-3", "owner": "Ben Carter", "customer": "Alpine Ski House", "due_date": null}'
+  - input: >
+      Notes de pont. Current escalation for Litware Hotels uses incident INC-9018.
+      Gravite: Sev-1. Owner: Sofia Martinez.
+      Prochaine mise a jour client le 2026-03-19.
+    expected: '{"incident_id": "INC-9018", "severity": "sev-1", "owner": "Sofia Martinez", "customer": "Litware Hotels", "due_date": "2026-03-19"}'
+
+metadata:
+  task_type: extraction
+  output_format: json
+  difficulty: high
+  multilingual: true
+  domain: incident_management
+  required_output_keys:
+    - incident_id
+    - severity
+    - owner
+    - customer
+    - due_date
+  locale_mix:
+    - en
+    - es
+    - fr
+    - de
+    - pt

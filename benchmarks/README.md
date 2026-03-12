@@ -45,7 +45,27 @@ python scripts/run_benchmarks.py --llm-url http://localhost:8080/v1
    - Evaluator: staged pipeline (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`)
    - 6 training + 2 validation examples
 
-6. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
+6. **Multilingual Routing** (`multilingual_routing_task.yaml`)
+   - Route mixed-language support requests to a single canonical queue label
+   - Evaluator: label_answer with strict canonical-label scoring across locale shifts
+   - 10 training + 3 validation examples
+
+7. **Multilingual Incident Extraction** (`multilingual_incident_extraction_task.yaml`)
+   - Extract structured incident summaries from mixed-language ops notes
+   - Evaluator: staged pipeline (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`)
+   - 6 training + 2 validation examples
+
+8. **Ambiguous Intent Routing** (`ambiguous_intent_routing_task.yaml`)
+   - Route requests with an explicit abstain path when safe routing is unclear
+   - Evaluator: label_answer with strict `escalate/ambiguous` abstention scoring
+   - 10 training + 3 validation examples
+
+9. **Tool Action Schema** (`tool_action_schema_task.yaml`)
+   - Emit strict machine-readable tool/action objects instead of prose plans
+   - Evaluator: staged pipeline (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`)
+   - 8 training + 2 validation examples
+
+10. **Arithmetic Reasoning** (`arithmetic_task.yaml`)
    - Solve word math problems
    - Evaluator: numeric_answer with strict bare-number perfect scoring and prose partial credit
    - 12 examples

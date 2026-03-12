@@ -32,7 +32,7 @@ PromptFoundry treats **prompt engineering as a systematic optimization problem**
 ### Current Scope
 
 - Current search method: evolutionary optimization only
-- Current strengths: format-constrained tasks, extraction, classification, hierarchical routing, and tasks with cheap proxy metrics
+- Current strengths: format-constrained tasks, extraction, multilingual routing, schema-constrained action objects, and tasks with cheap proxy metrics
 - Current limitation: performance is still dominated by the LLM backend, especially on extraction-heavy tasks that need richer structural evaluators than fuzzy match alone
 - Planned next step: keep alternative search methods behind benchmark evidence before expanding beyond the evolutionary baseline
 

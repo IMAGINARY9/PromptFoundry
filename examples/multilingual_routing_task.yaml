@@ -1,0 +1,81 @@
+# Multilingual Routing Task
+#
+# PURPOSE: Validate strict label-only routing when requests arrive across
+# multiple languages and mixed-language support contexts.
+
+name: multilingual_support_routing
+
+system_prompt: |
+  You route support requests to exactly one queue label.
+  The request may be written in English, Spanish, French, German, or Portuguese.
+  Return exactly one label from this set:
+  billing/refund, billing/invoice, support/bug, support/access, sales/demo.
+  Output only the label with no explanation.
+
+evaluator: label_answer
+evaluator_config:
+  case_sensitive: false
+  allowed_labels:
+    - billing/refund
+    - billing/invoice
+    - support/bug
+    - support/access
+    - sales/demo
+
+examples:
+  - input: "Me cobraron dos veces este mes y necesito que reviertan el pago duplicado."
+    expected: "billing/refund"
+
+  - input: "Bonjour, pouvez-vous m'envoyer la facture de fevrier avec notre numero de TVA ?"
+    expected: "billing/invoice"
+
+  - input: "Die App sturzt jedes Mal ab, wenn ich den Wochenbericht exportiere."
+    expected: "support/bug"
+
+  - input: "Nao consigo entrar depois de ativar MFA e meus codigos de backup nao funcionam."
+    expected: "support/access"
+
+  - input: "Necesitamos una demostracion en vivo de los controles de auditoria para el equipo de seguridad."
+    expected: "sales/demo"
+
+  - input: "Le client veut un remboursement car l'abonnement a ete facture apres l'annulation."
+    expected: "billing/refund"
+
+  - input: "Bitte senden Sie die korrigierte Rechnung fur Marz an unsere Einkaufsabteilung."
+    expected: "billing/invoice"
+
+  - input: "O painel trava quando abrimos o relatorio semanal no navegador."
+    expected: "support/bug"
+
+  - input: "Mon compte exige le SSO, mais je reste bloque apres la reinitialisation du mot de passe."
+    expected: "support/access"
+
+  - input: "Our procurement lead is evaluating the platform and wants a guided product demo next week."
+    expected: "sales/demo"
+
+validation_examples:
+  - input: "Necesito el reembolso del cargo que siguio activo despues de cancelar la renovacion."
+    expected: "billing/refund"
+  - input: "Wir brauchen eine Produktdemo fur das Admin-Team und die Audit-Logs."
+    expected: "sales/demo"
+  - input: "Je suis bloque hors de mon compte depuis l'activation du SSO obligatoire."
+    expected: "support/access"
+
+metadata:
+  task_type: classification
+  output_format: label
+  difficulty: medium
+  multilingual: true
+  domain: support_routing
+  locale_mix:
+    - en
+    - es
+    - fr
+    - de
+    - pt
+  allowed_labels:
+    - billing/refund
+    - billing/invoice
+    - support/bug
+    - support/access
+    - sales/demo

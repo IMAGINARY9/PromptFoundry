@@ -95,3 +95,40 @@ class TestBundledTaskContracts:
 
         assert evaluator.evaluate(expected, expected) == 1.0
         assert 0.0 < evaluator.evaluate(incomplete, expected) < 1.0
+
+    def test_multilingual_routing_task_still_requires_single_canonical_label(self) -> None:
+        """Multilingual routing should stay strict on the final English route label."""
+        _task, evaluator = _load_bundled_task("multilingual_routing_task.yaml")
+
+        assert evaluator.evaluate("support/access", "support/access") == 1.0
+        assert evaluator.evaluate("support/access porque el usuario no puede iniciar sesion", "support/access") == 0.0
+
+    def test_multilingual_extraction_task_preserves_partial_credit(self) -> None:
+        """Multilingual extraction should preserve gradient before strict JSON is perfect."""
+        _task, evaluator = _load_bundled_task("multilingual_incident_extraction_task.yaml")
+
+        expected = '{"incident_id": "INC-4821", "severity": "sev-1", "owner": "Maya Singh", "customer": "Northwind Retail", "due_date": "2026-03-15"}'
+        incomplete = '{"incident_id": "INC-4821", "severity": "sev-1", "customer": "Northwind Retail"}'
+
+        assert evaluator.evaluate(expected, expected) == 1.0
+        assert 0.0 < evaluator.evaluate(incomplete, expected) < 1.0
+
+    def test_ambiguous_routing_task_supports_explicit_abstain_label(self) -> None:
+        """Ambiguous routing should require the explicit abstain/escalation label."""
+        _task, evaluator = _load_bundled_task("ambiguous_intent_routing_task.yaml")
+
+        assert evaluator.evaluate("escalate/ambiguous", "escalate/ambiguous") == 1.0
+        assert evaluator.evaluate(
+            "escalate/ambiguous because billing and invoice are both plausible",
+            "escalate/ambiguous",
+        ) == 0.0
+
+    def test_tool_action_schema_task_requires_complete_action_object(self) -> None:
+        """Tool-choice tasks should preserve partial credit until the schema is complete."""
+        _task, evaluator = _load_bundled_task("tool_action_schema_task.yaml")
+
+        expected = '{"tool": "incident_api", "action": "page_oncall", "target": "incident", "priority": "urgent"}'
+        incomplete = '{"tool": "incident_api", "action": "page_oncall"}'
+
+        assert evaluator.evaluate(expected, expected) == 1.0
+        assert 0.0 < evaluator.evaluate(incomplete, expected) < 1.0

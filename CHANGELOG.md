@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LabelAnswerEvaluator for strict classification tasks that keep exact-match full credit while awarding conservative partial credit to verbose local-model outputs
 - JsonValueCoverageEvaluator and a value-recovery stage for long-context extraction pipelines before strict JSON formatting succeeds
 - Hierarchical intent routing and long-context extraction benchmark tasks
+- Multilingual routing and multilingual incident extraction benchmark tasks
+- Ambiguous abstain-capable routing benchmark task
+- Tool action-schema benchmark task for machine-readable tool selection
 
 ### Changed
 - Evolutionary runtime now applies crowding penalties during selection

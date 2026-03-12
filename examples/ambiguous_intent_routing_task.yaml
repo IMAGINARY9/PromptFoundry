@@ -1,0 +1,82 @@
+# Ambiguous Intent Routing Task
+#
+# PURPOSE: Validate strict label routing when the request may map to multiple
+# queues, requiring a calibrated abstain/escalation label instead of guesswork.
+
+name: ambiguous_intent_routing
+
+system_prompt: |
+  You route support requests to exactly one queue label.
+  Return exactly one label from this set:
+  billing/refund, billing/invoice, support/bug, support/access, sales/demo, escalate/ambiguous.
+  Use billing/refund for duplicate charges, reimbursements, and canceled purchases that still billed.
+  Use billing/invoice for invoice copies, tax details, statements, or billing documents.
+  Use support/bug for product defects, crashes, or broken behavior.
+  Use support/access for login, MFA, SSO, password-reset, or account lockout issues.
+  Use sales/demo for product walkthroughs, evaluations, or live demonstrations.
+  Use escalate/ambiguous when multiple labels are equally justified or the request is too underspecified to route safely.
+  Output only the label with no explanation.
+
+evaluator: label_answer
+evaluator_config:
+  case_sensitive: false
+  allowed_labels:
+    - billing/refund
+    - billing/invoice
+    - support/bug
+    - support/access
+    - sales/demo
+    - escalate/ambiguous
+
+examples:
+  - input: "I need the duplicate renewal refunded because we canceled before the charge posted."
+    expected: "billing/refund"
+
+  - input: "Please send me invoice INV-7712 with our procurement reference attached."
+    expected: "billing/invoice"
+
+  - input: "The dashboard crashes right after I click Export CSV."
+    expected: "support/bug"
+
+  - input: "I am locked out after turning on SSO and my backup codes are rejected."
+    expected: "support/access"
+
+  - input: "Our security team wants a live platform walkthrough before purchase."
+    expected: "sales/demo"
+
+  - input: "We were billed twice and also need the missing invoice copy for accounting."
+    expected: "escalate/ambiguous"
+
+  - input: "I cannot tell whether this is a login policy problem or a bug in the mobile app because both happened after the update."
+    expected: "escalate/ambiguous"
+
+  - input: "Can someone help with my account? It stopped working after yesterday."
+    expected: "escalate/ambiguous"
+
+  - input: "We want pricing details and maybe a product demo if the audit logs look good."
+    expected: "sales/demo"
+
+  - input: "The subscription was canceled, but billing still charged us and finance is asking for the final invoice."
+    expected: "escalate/ambiguous"
+
+validation_examples:
+  - input: "The login page fails after MFA enrollment, but it could also be a browser bug from the new release."
+    expected: "escalate/ambiguous"
+  - input: "Please reverse the accidental overcharge on our annual renewal."
+    expected: "billing/refund"
+  - input: "Our team needs a guided demo of SSO and audit controls next week."
+    expected: "sales/demo"
+
+metadata:
+  task_type: classification
+  output_format: label
+  difficulty: high
+  ambiguous_routing: true
+  domain: support_routing
+  allowed_labels:
+    - billing/refund
+    - billing/invoice
+    - support/bug
+    - support/access
+    - sales/demo
+    - escalate/ambiguous

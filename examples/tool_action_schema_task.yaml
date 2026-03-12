@@ -1,0 +1,104 @@
+# Tool Action Schema Task
+#
+# PURPOSE: Validate tool-choice and action-schema generation where the model
+# must emit a strict machine-readable command object instead of prose.
+
+name: tool_action_schema
+
+system_prompt: |
+  You read an operations request and select the correct machine action.
+  Return exactly one JSON object with these keys in this order:
+  tool, action, target, priority.
+  Use null for any missing or unknown field.
+  Do not include explanation or extra keys.
+
+evaluator: pipeline
+evaluator_config:
+  aggregation: weighted_mean
+  fail_score: 0.0
+  stages:
+    - name: value_mentions
+      type: json_value_coverage
+      config:
+        skip_null_values: true
+      threshold: 0.0
+      is_filter: false
+      weight: 1.0
+    - name: json_valid
+      type: json_parse
+      config:
+        extract_json: true
+      threshold: 1.0
+      is_filter: true
+      weight: 1.0
+    - name: schema_complete
+      type: json_schema
+      config:
+        required_keys:
+          - tool
+          - action
+          - target
+          - priority
+      threshold: 0.8
+      is_filter: true
+      weight: 1.0
+    - name: value_quality
+      type: fuzzy_match
+      config:
+        threshold: 0.82
+      weight: 2.0
+      is_filter: false
+
+examples:
+  - input: >
+      Customer success says a subscriber was charged twice after canceling last week.
+      We need to send money back for the subscription immediately.
+    expected: '{"tool": "billing_api", "action": "issue_refund", "target": "subscription", "priority": "normal"}'
+
+  - input: >
+      Finance cannot find invoice INV-8812 in the portal and needs it re-sent today.
+    expected: '{"tool": "billing_api", "action": "send_invoice", "target": "invoice", "priority": "normal"}'
+
+  - input: >
+      A Sev-1 incident is active and we need the on-call engineer paged right now.
+    expected: '{"tool": "incident_api", "action": "page_oncall", "target": "incident", "priority": "urgent"}'
+
+  - input: >
+      An employee lost access after MFA enforcement and support needs a password reset link generated.
+    expected: '{"tool": "identity_api", "action": "reset_access", "target": "user_account", "priority": "high"}'
+
+  - input: >
+      Sales leadership wants a live platform walkthrough scheduled for a prospect next week.
+    expected: '{"tool": "crm_api", "action": "schedule_demo", "target": "prospect", "priority": "normal"}'
+
+  - input: >
+      Checkout is down in production and the incident commander asked for the customer war room to be opened now.
+    expected: '{"tool": "incident_api", "action": "open_war_room", "target": "incident", "priority": "urgent"}'
+
+  - input: >
+      Procurement needs the corrected invoice forwarded before end of day for contract review.
+    expected: '{"tool": "billing_api", "action": "send_invoice", "target": "invoice", "priority": "high"}'
+
+  - input: >
+      Security wants a demo environment booked for a qualified enterprise prospect.
+    expected: '{"tool": "crm_api", "action": "schedule_demo", "target": "prospect", "priority": "normal"}'
+
+validation_examples:
+  - input: >
+      The bridge commander needs the primary on-call responder paged for an active outage.
+    expected: '{"tool": "incident_api", "action": "page_oncall", "target": "incident", "priority": "urgent"}'
+  - input: >
+      A user is locked out after SSO enforcement and needs access restored quickly.
+    expected: '{"tool": "identity_api", "action": "reset_access", "target": "user_account", "priority": "high"}'
+
+metadata:
+  task_type: extraction
+  output_format: json
+  difficulty: high
+  action_schema: true
+  domain: tool_selection
+  required_output_keys:
+    - tool
+    - action
+    - target
+    - priority

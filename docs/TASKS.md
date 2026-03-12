@@ -1,6 +1,6 @@
 # PromptFoundry Task Catalog
 
-> **Version:** 1.1.0
+> **Version:** 1.2.0
 > **Status:** Active
 > **Last Updated:** 2026-03-12
 > **Authoritative Source:** Bundled task inventory, evaluator contracts, and MVP 3 task expansion guidance.
@@ -25,6 +25,10 @@ The tasks are not interchangeable. Some are intentionally strict to measure prom
 | Schema Extraction With Missing Fields | [examples/schema_extraction_task.yaml](../examples/schema_extraction_task.yaml) | `pipeline` (`json_parse` → `json_schema` → `fuzzy_match`) | CRM intake, contact normalization, ticket ingestion, and workflows where absent fields must be explicit `null` values |
 | Hierarchical Intent Routing | [examples/hierarchical_intent_task.yaml](../examples/hierarchical_intent_task.yaml) | `label_answer` with strict bare-label perfect scoring and conservative partial credit for verbose label selection | Queue routing, workflow dispatch, escalation categorization, and multi-tenant support triage |
 | Long-Context Incident Extraction | [examples/long_context_extraction_task.yaml](../examples/long_context_extraction_task.yaml) | `pipeline` (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`) | Incident management, audit summaries, long-form operational notes, and extraction from noisy timelines |
+| Multilingual Routing | [examples/multilingual_routing_task.yaml](../examples/multilingual_routing_task.yaml) | `label_answer` with strict canonical-label scoring across mixed-language inputs | Global support triage, multilingual helpdesk queues, and locale-shifted routing workflows |
+| Multilingual Incident Extraction | [examples/multilingual_incident_extraction_task.yaml](../examples/multilingual_incident_extraction_task.yaml) | `pipeline` (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`) | Cross-region incident reporting, multilingual NOC handoffs, and mixed-language ops summaries |
+| Ambiguous Intent Routing | [examples/ambiguous_intent_routing_task.yaml](../examples/ambiguous_intent_routing_task.yaml) | `label_answer` with an explicit `escalate/ambiguous` abstain label | Safety-focused triage, escalation gating, and workflows that must avoid overconfident misrouting |
+| Tool Action Schema | [examples/tool_action_schema_task.yaml](../examples/tool_action_schema_task.yaml) | `pipeline` (`json_value_coverage` → `json_parse` → `json_schema` → `fuzzy_match`) | Tool selection, action planning, and machine-readable orchestration commands |
 | Arithmetic Reasoning | [examples/arithmetic_task.yaml](../examples/arithmetic_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Calculator-style assistants, invoice math verification, quantity checks, routing tasks that require a bare numeric result |
 | Word Math Problems | [examples/word_problems_task.yaml](../examples/word_problems_task.yaml) | `numeric_answer` with strict numeric-only perfect scoring and prose partial credit | Higher-variance quantitative reasoning where prompt optimization must discover answer-only formatting |
 
@@ -38,10 +42,12 @@ The following tasks are strict by design and should reject explanatory completio
 
 - Sentiment Classification
 - Hierarchical Intent Routing
+- Multilingual Routing
+- Ambiguous Intent Routing
 - Arithmetic Reasoning
 - Word Math Problems
 
-These tasks are used to measure whether optimization discovers instructions like “return exactly one label” or “output only the final answer.” Arithmetic, word-math, and hierarchical routing now preserve only conservative partial credit for verbose local-model outputs so the optimizer keeps a usable gradient without treating explanations as perfect answers.
+These tasks are used to measure whether optimization discovers instructions like “return exactly one label” or “output only the final answer.” Arithmetic, word-math, and the routing tasks now preserve only conservative partial credit for verbose local-model outputs so the optimizer keeps a usable gradient without treating explanations as perfect answers.
 
 ### 3.2 Tolerant-format tasks
 
@@ -72,11 +78,13 @@ Use this when the production system expects a closed label set and downstream lo
 
 Hierarchical Intent Routing extends the same contract to multi-level labels where downstream queue assignment depends on the exact slash-delimited route.
 
+Multilingual Routing adds locale shifts without changing the canonical output labels, while Ambiguous Intent Routing adds a calibrated abstain path through `escalate/ambiguous` when safe routing is not possible.
+
 ### 4.2 Structured extraction from semi-structured text
 
 Primary tasks: JSON Formatting and Structured Extraction.
 
-Long-Context Incident Extraction and Schema Extraction With Missing Fields extend this group to pipeline-scored JSON tasks where retrieval focus and explicit missing-field handling both matter. The long-context task now starts with a cheap value-recovery stage so verbose extractions still produce signal before the optimizer solves strict JSON formatting.
+Long-Context Incident Extraction, Multilingual Incident Extraction, Schema Extraction With Missing Fields, and Tool Action Schema extend this group to pipeline-scored JSON tasks where retrieval focus, locale shifts, explicit missing-field handling, and machine-readable action objects all matter. The extraction tasks now start with a cheap value-recovery stage so verbose outputs still produce signal before the optimizer solves strict JSON formatting.
 
 Use these when the output feeds another program, a report generator, a CRM ingest path, or a records normalization pipeline. These tasks are especially useful for validating MVP 3 semantic mutations because they benefit from clearer formatting constraints and layout-aware prompt changes.
 
@@ -96,6 +104,8 @@ The current task bundle is good enough to validate MVP 3 on three important axes
 - Structured output compliance
 - Numeric answer discipline
 - Long-context focus under distractors
+- Multilingual robustness across routing and extraction
+- Machine-readable tool/action selection
 
 The new schema-missing-fields task adds a fourth axis:
 
@@ -103,11 +113,11 @@ The new schema-missing-fields task adds a fourth axis:
 
 The current task bundle is still narrow in several ways:
 
-- It does not cover long-context extraction where irrelevant text competes with the target facts.
-- It now covers optional or missing fields, but only in short-to-medium extraction contexts.
-- It now covers hierarchical labels, but not multilingual or ambiguous multi-label routing.
-- It does not cover multilingual prompts or locale-sensitive outputs.
-- It does not cover agent-like tasks where the right answer is a tool choice, action plan, or schema-constrained command.
+- It now covers multilingual prompts, but only with a small European-language mix and canonical English output labels.
+- It now covers ambiguous routing, but abstention quality is still the weakest benchmark under the bundled slow-local budget.
+- It now covers tool-choice objects, but not longer multi-step action plans with dependencies.
+- It does not cover locale-specific numeric/date formatting or multilingual output schemas.
+- It does not cover agent-like tasks where multiple actions or tool sequences must be planned together.
 
 ---
 
@@ -135,19 +145,19 @@ Why it matters: this now exposes whether current mutations improve focus and ins
 
 ### 6.4 Multilingual classification and extraction
 
-Add a task mix with English plus at least one other language.
+Implemented in [examples/multilingual_routing_task.yaml](../examples/multilingual_routing_task.yaml) and [examples/multilingual_incident_extraction_task.yaml](../examples/multilingual_incident_extraction_task.yaml).
 
-Why it matters: this stresses evaluator assumptions, exact-match normalization rules, and prompt robustness under different token distributions.
+Why it matters: these tasks stress evaluator assumptions, exact-match normalization rules, and prompt robustness under different token distributions while keeping canonical output contracts stable.
 
 ### 6.5 Multi-step reasoning with structured output
 
-Add tasks that require reasoning but must emit a compact JSON object or tuple-like answer.
+Implemented in [examples/tool_action_schema_task.yaml](../examples/tool_action_schema_task.yaml).
 
-Why it matters: this combines reasoning and formatting pressure, which is closer to real production workflows than pure math or pure extraction alone.
+Why it matters: this combines routing-style interpretation with strict machine-readable output, which is closer to real production workflows than pure math or pure extraction alone.
 
 ### 6.6 Staged evaluation pipelines for complex tasks
 
-Introduce new tasks only when paired with a stronger evaluator stack such as:
+Implemented across the multilingual extraction and tool-action schema tasks using a stronger evaluator stack such as:
 
 - JSON parse filter
 - Schema compliance scorer
@@ -160,6 +170,12 @@ Why it matters: MVP 3 can optimize prompts well, but complex workloads need bett
 Implemented in the optimizer and evolutionary strategy feedback loop.
 
 Why it matters: pipeline-scored tasks now feed the dominant failing stage back into operator selection, so structural failures bias toward layout/constraint repairs while quality failures bias toward verification and cleanup.
+
+### 6.8 Ambiguous routing with explicit abstention
+
+Implemented in [examples/ambiguous_intent_routing_task.yaml](../examples/ambiguous_intent_routing_task.yaml).
+
+Why it matters: this tests whether the optimizer can preserve strict label discipline without forcing overconfident guesses when the safest behavior is escalation.
 
 ---
 
@@ -182,3 +198,4 @@ If the downstream system expects machine-readable output, prefer strict scoring 
 |---------|------|--------|---------|
 | 1.0.0 | 2026-03-08 | GitHub Copilot | Added bundled task inventory, audit corrections, and MVP 3 expansion guidance. |
 | 1.1.0 | 2026-03-12 | GitHub Copilot | Added hierarchical routing, long-context extraction, stage-aware mutation feedback notes, and signal-recovery evaluator contracts for verbose local-model outputs. |
+| 1.2.0 | 2026-03-12 | GitHub Copilot | Added multilingual routing/extraction, ambiguous abstain-capable routing, tool-action schema tasks, and updated current coverage limits. |

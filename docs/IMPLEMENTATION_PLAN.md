@@ -93,12 +93,14 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - ✅ Ablation utilities for operator quality
 - ✅ Benchmark-based acceptance gates for future strategy additions
 - ✅ YAML-configurable staged evaluator pipelines and at least one new example (schema extraction with missing fields)
-- ✅ Additional MVP 3 benchmark expansions: hierarchical intent routing and long-context extraction
+- ✅ Additional MVP 3 benchmark expansions: hierarchical routing, multilingual routing, long-context extraction, ambiguous abstain-capable routing, and tool-action schema generation
 - ✅ Stage-aware semantic mutations that react to dominant pipeline-stage failures
 
 **Latest validation snapshot:**
 - Hierarchical intent routing reached `0.7000` under the bundled MVP 3 validation config after label recovery and completion cleanup.
 - Long-context extraction reached `0.9322` under the bundled MVP 3 validation config after JSON value recovery, completion cleanup, and stricter field reconstruction.
+- Multilingual routing reached `0.5000` with a stricter label-list seed, while multilingual incident extraction reached `0.9155` under the same config.
+- Tool-action schema generation reached `0.5738`; ambiguous abstain-capable routing remained the hardest added benchmark at `0.2000` under the bundled slow-local budget.
 
 ### MVP 4: Additional Search Methods (Experimental)
 **Goal:** Add alternative search methods only after the evolutionary baseline is benchmarked and stable
@@ -296,6 +298,9 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - [x] Add and validate pipeline-based extraction expansions (schema extraction and long-context extraction)
 - [x] Add and validate hierarchical intent routing benchmark
 - [x] Add stage-aware mutation feedback from evaluator pipeline stages
+- [x] Add and validate multilingual routing and extraction benchmarks
+- [x] Add ambiguous abstain-capable routing benchmark
+- [x] Add and validate tool-action schema benchmark
 
 **Validation summary (2026-03-12):**
 - Sentiment classification matched the MVP 2 baseline at `1.0000` best fitness under the 180s validation budget.
@@ -304,6 +309,9 @@ This means MVP 2 is no longer "more algorithms first". It is "evaluation quality
 - Strict-output tasks recovered from zero-signal after numeric-answer evaluator added: arithmetic scored 0.50, word-math scored ~0.32 under identical budget.
 - A new schema-constrained extraction task benchmark run achieved best fitness ~0.58 under the same budget, demonstrating pipeline evaluators work in practice.
 - Hierarchical intent routing and long-context extraction now retain strong signal under the standard MVP 3 config after completion normalization, conservative label recovery, and a value-recovery stage ahead of strict JSON validation; the latest bundled runs reached `0.7000` and `0.9322` respectively.
+- Multilingual routing and multilingual extraction now extend those same contracts across locale shifts, reaching `0.5000` and `0.9155` respectively with the bundled validation config.
+- Tool-action schema generation reached `0.5738`, demonstrating that pipeline-scored machine-action objects are viable within the current evolutionary loop.
+- Ambiguous abstain-capable routing is now benchmarked, but remains the weakest expansion at `0.2000`, making it a good stress case for future calibration work.
 - Pipeline-scored tasks now feed dominant failing stages back into mutation selection, keeping stage-aware corrections inside the existing evolutionary loop.
 - Saved result artifacts now include detected task type/output mode, diversity metrics, adaptive schedule state, ablation summaries, lineage reports for best prompts, normalized `completion`, and `raw_completion` when model-output cleanup is required.
 - Operator evidence from the validation runs consistently favored `add_verification_directive` and `promote_structured_layout` on structured prompts.

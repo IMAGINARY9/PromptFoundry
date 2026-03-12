@@ -301,6 +301,10 @@ def main() -> None:
         "schema_extraction_task": "Extract the contact record as JSON: {input}",
         "hierarchical_intent_task": "Route the request to the correct support queue: {input}",
         "long_context_extraction_task": "Extract the incident summary as JSON: {input}",
+        "multilingual_routing_task": "Choose exactly one label from billing/refund, billing/invoice, support/bug, support/access, sales/demo. The request may be in English, Spanish, French, German, or Portuguese.\nRequest: {input}\nLabel:",
+        "multilingual_incident_extraction_task": "Extract the multilingual incident summary as JSON: {input}",
+        "ambiguous_intent_routing_task": "Choose exactly one label from billing/refund, billing/invoice, support/bug, support/access, sales/demo, escalate/ambiguous. Use billing/refund for reimbursements, billing/invoice for invoice copies, support/bug for defects, support/access for login issues, sales/demo for product walkthroughs. If the request is underspecified or two labels conflict, return escalate/ambiguous.\nRequest: {input}\nLabel:",
+        "tool_action_schema_task": "Select the correct machine action and return one JSON object: {input}",
     }
 
     if args.task:
